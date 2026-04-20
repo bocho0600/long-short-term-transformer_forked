@@ -1013,3 +1013,5 @@ Epoch  1 | train det_loss: 0.96197 | test det_loss: 0.67130 det_mAP: 0.54877 | r
 Epoch  2 | train det_loss: 0.49469 | test det_loss: 0.64131 det_mAP: 0.63267 | running time: 190.05 sec
 Epoch  3 | train det_loss: 0.40169 | test det_loss: 0.54535 det_mAP: 0.65451 | running time: 188.93 sec
 Epoch  4 | train det_loss: 0.36001 | test det_loss: 0.54742 det_mAP: 0.66714 | running time: 187.47 sec
+Epoch  5 | train det_loss: 0.33556 | test det_loss: 0.53322 det_mAP: 0.67664 | running time: 188.59 sec
+Epoch  6 | train det_loss: 0.32145 | test det_loss: 0.56111 det_mAP: 0.68049 | running time: 183.85 sec
