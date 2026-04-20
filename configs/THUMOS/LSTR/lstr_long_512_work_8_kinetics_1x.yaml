@@ -14,7 +14,9 @@ MODEL:
     DIM_FEEDFORWARD: 1024
     DROPOUT: 0.2
     ACTIVATION: 'relu'
-    LONG_MEMORY_SECONDS: 512
+    # the long-term memory window (mL), storing 1024 seconds of past video. At 4 FPS with LONG_MEMORY_SAMPLE_RATE: 4, 
+    # this equals 4096 frames fed into the LSTR encoder.
+    LONG_MEMORY_SECONDS: 2048       # was 512 - increased to test if more memory helps or worse
     LONG_MEMORY_SAMPLE_RATE: 4
     WORK_MEMORY_SECONDS: 8
     WORK_MEMORY_SAMPLE_RATE: 1
