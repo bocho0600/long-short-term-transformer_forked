@@ -16,12 +16,14 @@ class LSTR(nn.Module):
 
         # Build long feature heads
         self.long_memory_num_samples = cfg.MODEL.LSTR.LONG_MEMORY_NUM_SAMPLES
+        self.long_memory_position_padding = cfg.MODEL.LSTR.LONG_MEMORY_POSITION_PADDING
         self.long_enabled = self.long_memory_num_samples > 0
         if self.long_enabled:
             self.feature_head_long = build_feature_head(cfg)
 
         # Build work feature head
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
+        self.work_memory_position_padding = cfg.MODEL.LSTR.WORK_MEMORY_POSITION_PADDING
         self.work_enabled = self.work_memory_num_samples > 0
         if self.work_enabled:
             self.feature_head_work = build_feature_head(cfg)
@@ -84,7 +86,7 @@ class LSTR(nn.Module):
             long_memories = self.pos_encoding(self.feature_head_long(
                 visual_inputs[:, :self.long_memory_num_samples],
                 motion_inputs[:, :self.long_memory_num_samples],
-            ).transpose(0, 1))
+            ).transpose(0, 1), padding=self.long_memory_position_padding)
 
             if len(self.enc_modules) > 0:
                 enc_queries = [
@@ -114,7 +116,7 @@ class LSTR(nn.Module):
             work_memories = self.pos_encoding(self.feature_head_work(
                 visual_inputs[:, self.long_memory_num_samples:],
                 motion_inputs[:, self.long_memory_num_samples:],
-            ).transpose(0, 1), padding=self.long_memory_num_samples)
+            ).transpose(0, 1), padding=self.work_memory_position_padding)
 
             # Build mask
             mask = tr.generate_square_subsequent_mask(
@@ -176,7 +178,9 @@ class LSTRStream(LSTR):
                 ))
 
             long_memories = self.long_memories_cache
-            pos = self.pos_encoding.pe[:self.long_memory_num_samples, :]
+            pos = self.pos_encoding.pe[
+                self.long_memory_position_padding:
+                self.long_memory_position_padding + self.long_memory_num_samples, :]
 
             enc_queries = [
                 enc_query.weight.unsqueeze(1).repeat(1, long_memories.shape[1], 1)
@@ -218,7 +222,7 @@ class LSTRStream(LSTR):
             work_memories = self.pos_encoding(self.feature_head_work(
                 work_visual_inputs,
                 work_motion_inputs,
-            ).transpose(0, 1), padding=self.long_memory_num_samples)
+            ).transpose(0, 1), padding=self.work_memory_position_padding)
 
             # Build mask
             mask = tr.generate_square_subsequent_mask(

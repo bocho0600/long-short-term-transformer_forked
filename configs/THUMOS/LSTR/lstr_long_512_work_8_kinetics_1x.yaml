@@ -18,6 +18,14 @@ MODEL:
     # this equals 4096 frames fed into the LSTR encoder.
     LONG_MEMORY_SECONDS: 2048       # was 512 - increased to test if more memory helps or worse
     LONG_MEMORY_SAMPLE_RATE: 4
+    # Sliding long-memory window experiment. Keep LONG_MEMORY_SECONDS as the
+    # searchable history, then feed only one sub-window to the model.
+    # INDEX 0 is the most recent window; 1 shifts one stride farther back.
+    LONG_MEMORY_WINDOW_SECONDS: 0
+    LONG_MEMORY_WINDOW_STRIDE_SECONDS: 0
+    LONG_MEMORY_WINDOW_INDEX: 0
+
+    
     WORK_MEMORY_SECONDS: 8
     WORK_MEMORY_SAMPLE_RATE: 1
     ENC_MODULE: [

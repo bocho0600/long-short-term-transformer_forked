@@ -13,6 +13,19 @@ from rekognition_online_action_detection.datasets import build_dataset
 from rekognition_online_action_detection.evaluation import compute_result
 
 
+def _pred_scores_file(cfg):
+    pred_scores_file = osp.splitext(cfg.MODEL.CHECKPOINT)[0]
+    if cfg.MODEL.LSTR.LONG_MEMORY_WINDOW_SECONDS > 0:
+        stride = cfg.MODEL.LSTR.LONG_MEMORY_WINDOW_STRIDE_SECONDS
+        if stride == 0:
+            stride = cfg.MODEL.LSTR.LONG_MEMORY_WINDOW_SECONDS
+        pred_scores_file += '_longwin{}s_stride{}s_idx{}'.format(
+            cfg.MODEL.LSTR.LONG_MEMORY_WINDOW_SECONDS,
+            stride,
+            cfg.MODEL.LSTR.LONG_MEMORY_WINDOW_INDEX)
+    return pred_scores_file + '.pkl'
+
+
 def do_perframe_det_batch_inference(cfg, model, device, logger):
     # Setup model to test mode
     model.eval()
@@ -50,11 +63,13 @@ def do_perframe_det_batch_inference(cfg, model, device, logger):
                     gt_targets[session][query_indices[-1]] = target[bs][-1]
 
     # Save scores and targets
+    pred_scores_file = _pred_scores_file(cfg)
     pkl.dump({
         'cfg': cfg,
         'perframe_pred_scores': pred_scores,
         'perframe_gt_targets': gt_targets,
-    }, open(osp.splitext(cfg.MODEL.CHECKPOINT)[0] + '.pkl', 'wb'))
+    }, open(pred_scores_file, 'wb'))
+    logger.info('Saved prediction scores to {}'.format(pred_scores_file))
 
     # Compute results
     result = compute_result['perframe'](
