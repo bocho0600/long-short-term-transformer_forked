@@ -15,9 +15,15 @@ from rekognition_online_action_detection.utils.lstr_memory import (
 )
 
 from ..base_inferences.perframe_det_batch_inference import do_perframe_det_batch_inference
-
-
 from ..engines import INFERENCES as registry
+
+
+def _sanitize_logits(logits):
+    if torch.isfinite(logits).all().item():
+        return logits
+    return torch.where(torch.isfinite(logits), logits, torch.zeros_like(logits))
+
+
 @registry.register('LSTR')
 def do_lstr_batch_inference(cfg,
                             model,
@@ -127,6 +133,12 @@ def do_lstr_stream_inference(cfg, model, device, logger):
                         work_visual_inputs,
                         work_motion_inputs,
                         memory_key_padding_mask)[0]
+                if not torch.isfinite(score).all().item():
+                    logger.warning(
+                        'Non-finite logits detected in stream inference for video {} '
+                        'at work window starting {}; replacing affected logits with 0 '
+                        'before softmax.'.format(session, work_start))
+                    score = _sanitize_logits(score)
                 score = score.softmax(dim=-1).cpu().numpy()
 
                 if work_start == 0:

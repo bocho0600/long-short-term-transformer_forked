@@ -13,6 +13,12 @@ from rekognition_online_action_detection.datasets import build_dataset
 from rekognition_online_action_detection.evaluation import compute_result
 
 
+def _sanitize_logits(logits):
+    if torch.isfinite(logits).all().item():
+        return logits
+    return torch.where(torch.isfinite(logits), logits, torch.zeros_like(logits))
+
+
 def _pred_scores_file(cfg):
     pred_scores_file = osp.splitext(cfg.MODEL.CHECKPOINT)[0]
     if cfg.MODEL.LSTR.LONG_MEMORY_WINDOW_SECONDS > 0:
@@ -47,6 +53,12 @@ def do_perframe_det_batch_inference(cfg, model, device, logger):
             target = data[-4]
 
             score = model(*[x.to(device) for x in data[:-4]])
+            if not torch.isfinite(score).all().item():
+                logger.warning(
+                    'Non-finite logits detected in batch inference batch {}; '
+                    'replacing affected logits with 0 before softmax.'.format(
+                        batch_idx))
+                score = _sanitize_logits(score)
             score = score.softmax(dim=-1).cpu().numpy()
 
             for bs, (session, query_indices, num_frames) in enumerate(zip(*data[-3:])):

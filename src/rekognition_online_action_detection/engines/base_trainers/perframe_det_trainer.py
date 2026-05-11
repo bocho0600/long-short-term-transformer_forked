@@ -10,6 +10,12 @@ import torch.nn as nn
 from rekognition_online_action_detection.evaluation import compute_result
 
 
+def _sanitize_logits(logits):
+    if torch.isfinite(logits).all().item():
+        return logits
+    return torch.where(torch.isfinite(logits), logits, torch.zeros_like(logits))
+
+
 def do_perframe_det_train(cfg,
                           data_loaders,
                           model,
@@ -44,7 +50,25 @@ def do_perframe_det_train(cfg,
                     det_score = model(*[x.to(device) for x in data[:-1]])
                     det_score = det_score.reshape(-1, cfg.DATA.NUM_CLASSES)
                     det_target = det_target.reshape(-1, cfg.DATA.NUM_CLASSES)
+                    if not torch.isfinite(det_score).all().item():
+                        logger.warning(
+                            'Non-finite logits detected in {} epoch {} batch {}; '
+                            'replacing affected logits with 0 before loss/eval.'.format(
+                                phase, epoch, batch_idx))
+                        det_score = _sanitize_logits(det_score)
                     det_loss = criterion['MCE'](det_score, det_target)
+                    if not torch.isfinite(det_loss).all().item():
+                        if training:
+                            logger.warning(
+                                'Non-finite loss detected in {} epoch {} batch {}; '
+                                'skipping optimizer step for this batch.'.format(
+                                    phase, epoch, batch_idx))
+                            continue
+                        logger.warning(
+                            'Non-finite loss detected in {} epoch {} batch {}; '
+                            'using 0 for loss logging and keeping predictions for eval.'.format(
+                                phase, epoch, batch_idx))
+                        det_loss = det_score.new_tensor(0.0)
                     det_losses[phase] += det_loss.item() * batch_size
 
                     # Output log for current batch

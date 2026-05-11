@@ -3,9 +3,27 @@
 
 from multiprocessing import Pool
 from collections import OrderedDict
+import warnings
 
 import numpy as np
 from sklearn.metrics import average_precision_score
+
+
+def _sanitize_prediction(prediction):
+    prediction = np.asarray(prediction, dtype=np.float64)
+    invalid_mask = ~np.isfinite(prediction)
+    if np.any(invalid_mask):
+        warnings.warn(
+            'Prediction scores contain {} non-finite values; replacing them '
+            'with finite sentinel scores for metric computation.'.format(
+                np.count_nonzero(invalid_mask)),
+            RuntimeWarning,
+        )
+        prediction = prediction.copy()
+        prediction[np.isnan(prediction)] = 0.0
+        prediction[prediction == np.inf] = np.finfo(np.float64).max
+        prediction[prediction == -np.inf] = np.finfo(np.float64).min
+    return prediction
 
 
 def calibrated_average_precision_score(y_true, y_score):
@@ -34,7 +52,7 @@ def perframe_average_precision(ground_truth,
     """
     result = OrderedDict()
     ground_truth = np.array(ground_truth)
-    prediction = np.array(prediction)
+    prediction = _sanitize_prediction(prediction)
 
     # Postprocessing
     if postprocessing is not None:
@@ -97,7 +115,7 @@ def perstage_average_precision(ground_truth,
                                postprocessing):
     result = OrderedDict()
     ground_truth = np.array(ground_truth)
-    prediction = np.array(prediction)
+    prediction = _sanitize_prediction(prediction)
 
     # Postprocessing
     if postprocessing is not None:
