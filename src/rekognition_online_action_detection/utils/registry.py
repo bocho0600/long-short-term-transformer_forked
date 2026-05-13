@@ -6,7 +6,7 @@ def _register_generic(module_dict, module_name, module):
     module_dict[module_name] = module
 
 
-class Registry(dict):
+class Registry(dict): # This class is used to register datasets, models, etc. It inherits from dict and provides a decorator for registration.
 
     def __init__(self, *args, **kwargs):
         super(Registry, self).__init__(*args, **kwargs)

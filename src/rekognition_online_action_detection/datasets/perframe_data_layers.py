@@ -60,19 +60,19 @@ class LSTRDataLayer(data.Dataset):
     def __getitem__(self, index):
         session, work_start, work_end, target = self.inputs[index]
 
-        visual_inputs = np.load(
+        visual_inputs = np.load( # load visual features with memory mapping to save memory
             osp.join(self.data_root, self.visual_feature, session + '.npy'), mmap_mode='r')
-        motion_inputs = np.load(
+        motion_inputs = np.load( # load motion features with memory mapping to save memory
             osp.join(self.data_root, self.motion_feature, session + '.npy'), mmap_mode='r')
 
         # Get target
         target = target[::self.work_memory_sample_rate]
 
         # Get work memory
-        work_indices = np.arange(work_start, work_end).clip(0)
-        work_indices = work_indices[::self.work_memory_sample_rate]
-        work_visual_inputs = visual_inputs[work_indices]
-        work_motion_inputs = motion_inputs[work_indices]
+        work_indices = np.arange(work_start, work_end).clip(0) # get indices for work memory
+        work_indices = work_indices[::self.work_memory_sample_rate] # subsample indices for work memory
+        work_visual_inputs = visual_inputs[work_indices] # get visual features for work memory
+        work_motion_inputs = motion_inputs[work_indices] # get motion features for work memory
 
         # Get long memory
         if self.long_memory_num_samples > 0:
@@ -172,10 +172,12 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
         target = target[::self.work_memory_sample_rate]
 
         # Get work memory
-        work_indices = np.arange(work_start, work_end).clip(0)
-        work_indices = work_indices[::self.work_memory_sample_rate]
-        work_visual_inputs = visual_inputs[work_indices]
-        work_motion_inputs = motion_inputs[work_indices]
+        work_indices = np.arange(work_start, work_end).clip(0) # get indices for work memory
+        work_indices = work_indices[::self.work_memory_sample_rate] # resample indices for work memory
+        
+        # NOTE: Getting work memory features (short-term memory) for the current segment. This is done for each segment in the batch inference setting, which allows us to leverage the short-term memory for better predictions.
+        work_visual_inputs = visual_inputs[work_indices] # get visual features for work memory 
+        work_motion_inputs = motion_inputs[work_indices] # get motion features for work memory
 
         # Get long memory
         if self.long_memory_num_samples > 0:
