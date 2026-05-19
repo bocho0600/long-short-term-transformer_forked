@@ -10,6 +10,8 @@ MODEL:
     LINEAR_ENABLED: True
     LINEAR_OUT_FEATURES: 1024
   LSTR:
+    LONG_MEMORY_MASK_FRAME: 100  # mask frame 100 in long memory once it arrives
+
     NUM_HEADS: 16
     DIM_FEEDFORWARD: 1024
     DROPOUT: 0.2
