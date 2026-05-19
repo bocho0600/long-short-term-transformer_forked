@@ -27,6 +27,8 @@ class LSTRDataLayer(data.Dataset):
         self.work_memory_length = cfg.MODEL.LSTR.WORK_MEMORY_LENGTH
         self.work_memory_sample_rate = cfg.MODEL.LSTR.WORK_MEMORY_SAMPLE_RATE
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
+        self.long_memory_mask_frame = cfg.MODEL.LSTR.LONG_MEMORY_MASK_FRAME
+        self.long_memory_mask_ratio = cfg.MODEL.LSTR.LONG_MEMORY_MASK_RATIO
         self.training = phase == 'train'
 
         self._init_dataset()
@@ -96,6 +98,19 @@ class LSTRDataLayer(data.Dataset):
             last_zero = bisect_right(long_indices, 0) - 1
             if last_zero > 0:
                 memory_key_padding_mask[:last_zero] = float('-inf')
+
+            # Mask a specific frame once it has arrived in the long memory window
+            if self.long_memory_mask_frame >= 0 and work_start > self.long_memory_mask_frame:
+                mask_pos = np.where(long_indices == self.long_memory_mask_frame)[0]
+                if len(mask_pos) > 0:
+                    memory_key_padding_mask[mask_pos] = float('-inf')
+
+            # Randomly mask a fraction of valid (non-padded) long memory frames
+            if self.long_memory_mask_ratio > 0.0:
+                valid = np.where(memory_key_padding_mask == 0)[0]
+                n = int(len(valid) * self.long_memory_mask_ratio)
+                if n > 0:
+                    memory_key_padding_mask[np.random.choice(valid, size=n, replace=False)] = float('-inf')
         else:
             long_visual_inputs = None
             long_motion_inputs = None
@@ -140,6 +155,8 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
         self.work_memory_length = cfg.MODEL.LSTR.WORK_MEMORY_LENGTH
         self.work_memory_sample_rate = cfg.MODEL.LSTR.WORK_MEMORY_SAMPLE_RATE
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
+        self.long_memory_mask_frame = cfg.MODEL.LSTR.LONG_MEMORY_MASK_FRAME
+        self.long_memory_mask_ratio = cfg.MODEL.LSTR.LONG_MEMORY_MASK_RATIO
 
         assert phase == 'test', 'phase must be `test` for batch inference, got {}'
 
@@ -195,6 +212,19 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
             last_zero = bisect_right(long_indices, 0) - 1
             if last_zero > 0:
                 memory_key_padding_mask[:last_zero] = float('-inf')
+
+            # Mask a specific frame once it has arrived in the long memory window
+            if self.long_memory_mask_frame >= 0 and work_start > self.long_memory_mask_frame:
+                mask_pos = np.where(long_indices == self.long_memory_mask_frame)[0]
+                if len(mask_pos) > 0:
+                    memory_key_padding_mask[mask_pos] = float('-inf')
+
+            # Randomly mask a fraction of valid (non-padded) long memory frames
+            if self.long_memory_mask_ratio > 0.0:
+                valid = np.where(memory_key_padding_mask == 0)[0]
+                n = int(len(valid) * self.long_memory_mask_ratio)
+                if n > 0:
+                    memory_key_padding_mask[np.random.choice(valid, size=n, replace=False)] = float('-inf')
         else:
             long_visual_inputs = None
             long_motion_inputs = None

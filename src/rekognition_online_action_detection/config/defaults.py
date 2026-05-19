@@ -50,6 +50,10 @@ _C.MODEL.LSTR.ENC_MODULE = [
 _C.MODEL.LSTR.DEC_MODULE = [-1, 2, True]
 # Inference modes
 _C.MODEL.LSTR.INFERENCE_MODE = 'batch'
+# Frame index at which long memory masking begins (-1 = disabled)
+_C.MODEL.LSTR.LONG_MEMORY_MASK_FRAME = -1
+# Fraction of valid long memory frames to randomly mask (0.0 = disabled, e.g. 0.25/0.5/0.75)
+_C.MODEL.LSTR.LONG_MEMORY_MASK_RATIO = 0.0
 
 # ---------------------------------------------------------------------------- #
 # Criterion
