@@ -76,6 +76,7 @@ def assert_and_infer_cfg(cfg, args):
             cfg.MODEL.LSTR.LONG_MEMORY_NUM_SAMPLES + \
             cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
 
+        # Inference mode assertions for testing LSTR only
         assert cfg.MODEL.LSTR.INFERENCE_MODE in ['batch', 'stream']
 
     # Infer output dir

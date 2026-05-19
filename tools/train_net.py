@@ -14,33 +14,40 @@ from rekognition_online_action_detection.engines import do_train
 
 
 def main(cfg):
-    # Setup configurations
+
+    # Calls setup_environment(cfg) to choose GPU/CPU and seed randomness.
     device = setup_environment(cfg)
+
+    # Calls setup_checkpointer(cfg, phase='train') to prepare resume/save behavior from previous checkpoints. Calls setup_logger(cfg, phase='train') to prepare logging behavior.
     checkpointer = setup_checkpointer(cfg, phase='train')
+
+    # Calls setup_logger(cfg, phase='train') to log config and epoch results.
     logger = setup_logger(cfg, phase='train')
 
-    # Build data loaders
+    # Builds one DataLoader per phase in cfg.SOLVER.PHASES, usually train and test.
     data_loaders = {
         phase: build_data_loader(cfg, phase)
         for phase in cfg.SOLVER.PHASES
     }
 
-    # Build model
+    # I DON'T UNDERSTAND FROM HERE!!!!!!!!!
+    # Calls build_model(cfg, device) to construct LSTRStream. (what is LSTRStream???)
     model = build_model(cfg, device)
 
-    # Build criterion
+    # Calls build_criterion(cfg, device) to create losses.
     criterion = build_criterion(cfg, device)
 
-    # Build optimizer
+    # Calls build_optimizer(cfg, model) to create SGD/Adam/AdamW (what is SGD/Adam/AdamW???).
     optimizer = build_optimizer(cfg, model)
 
-    # Load pretrained model and optimizer
+    # Calls checkpointer.load(model, optimizer) to resume weights and optimizer state if a checkpoint exists (why does load checkpointer is called after the setup checkpointer???).
     checkpointer.load(model, optimizer)
 
-    # Build scheduler
+    # Build scheduler (what is scheduler???)
     scheduler = build_scheduler(
         cfg, optimizer, len(data_loaders['train']))
 
+    # Is it the most important function in this code? Calls do_train() to run the training loop.
     do_train(
         cfg,
         data_loaders,

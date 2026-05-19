@@ -109,7 +109,7 @@ class LSTRDataLayer(data.Dataset):
             fusion_visual_inputs = work_visual_inputs
             fusion_motion_inputs = work_motion_inputs
 
-        # Convert to tensor
+        # Convert to tensor as PyTorch needs tensors as input, and also convert to float32 for better performance
         fusion_visual_inputs = torch.as_tensor(fusion_visual_inputs.astype(np.float32))
         fusion_motion_inputs = torch.as_tensor(fusion_motion_inputs.astype(np.float32))
         target = torch.as_tensor(target.astype(np.float32))
