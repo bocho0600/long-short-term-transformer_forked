@@ -10,7 +10,9 @@ MODEL:
     LINEAR_ENABLED: True
     LINEAR_OUT_FEATURES: 1024
   LSTR:
-    LONG_MEMORY_MASK_FRAME: 100  # mask frame 100 in long memory once it arrives
+    LONG_MEMORY_MASK_FRAME: 100       # target frame index (-1 = disabled)
+    LONG_MEMORY_TARGET_FRAME_BIAS: 0.0  # attention bias for target frame (0=neutral, +5=boost)
+    LONG_MEMORY_OTHER_FRAMES_BIAS: -.inf  # attention bias for all other frames (-.inf=hide, 0=neutral)
 
     NUM_HEADS: 16
     DIM_FEEDFORWARD: 1024

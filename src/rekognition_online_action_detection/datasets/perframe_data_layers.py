@@ -28,6 +28,8 @@ class LSTRDataLayer(data.Dataset):
         self.work_memory_sample_rate = cfg.MODEL.LSTR.WORK_MEMORY_SAMPLE_RATE
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
         self.long_memory_mask_frame = cfg.MODEL.LSTR.LONG_MEMORY_MASK_FRAME
+        self.long_memory_target_frame_bias = cfg.MODEL.LSTR.LONG_MEMORY_TARGET_FRAME_BIAS
+        self.long_memory_other_frames_bias = cfg.MODEL.LSTR.LONG_MEMORY_OTHER_FRAMES_BIAS
         self.training = phase == 'train'
 
         self._init_dataset()
@@ -89,6 +91,14 @@ class LSTRDataLayer(data.Dataset):
                     long_end,
                     self.long_memory_num_samples,
                     self.long_memory_sample_rate).clip(0)
+
+            # Guarantee the mask frame is sampled by replacing the nearest slot
+            if self.long_memory_mask_frame >= 0 and long_start <= self.long_memory_mask_frame <= long_end:
+                if self.long_memory_mask_frame not in long_indices:
+                    nearest = np.argmin(np.abs(long_indices.astype(int) - self.long_memory_mask_frame))
+                    long_indices[nearest] = self.long_memory_mask_frame
+                    long_indices = np.sort(long_indices)
+
             long_visual_inputs = visual_inputs[long_indices]
             long_motion_inputs = motion_inputs[long_indices]
 
@@ -98,11 +108,12 @@ class LSTRDataLayer(data.Dataset):
             if last_zero > 0:
                 memory_key_padding_mask[:last_zero] = float('-inf')
 
-            # Mask a specific frame once it has arrived in the long memory window
+            # Apply per-frame attention biases: other frames get other_frames_bias, target gets target_frame_bias
             if self.long_memory_mask_frame >= 0 and work_start > self.long_memory_mask_frame:
-                mask_positions = np.where(long_indices == self.long_memory_mask_frame)[0]
-                if len(mask_positions) > 0:
-                    memory_key_padding_mask[mask_positions] = float('-inf')
+                keep_positions = np.where(long_indices == self.long_memory_mask_frame)[0]
+                if len(keep_positions) > 0:
+                    memory_key_padding_mask[:] = self.long_memory_other_frames_bias
+                    memory_key_padding_mask[keep_positions] = self.long_memory_target_frame_bias
         else:
             long_visual_inputs = None
             long_motion_inputs = None
@@ -148,6 +159,8 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
         self.work_memory_sample_rate = cfg.MODEL.LSTR.WORK_MEMORY_SAMPLE_RATE
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
         self.long_memory_mask_frame = cfg.MODEL.LSTR.LONG_MEMORY_MASK_FRAME
+        self.long_memory_target_frame_bias = cfg.MODEL.LSTR.LONG_MEMORY_TARGET_FRAME_BIAS
+        self.long_memory_other_frames_bias = cfg.MODEL.LSTR.LONG_MEMORY_OTHER_FRAMES_BIAS
 
         assert phase == 'test', 'phase must be `test` for batch inference, got {}'
 
@@ -195,6 +208,14 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
                 long_end,
                 self.long_memory_num_samples,
                 self.long_memory_sample_rate).clip(0)
+
+            # Guarantee the mask frame is sampled by replacing the nearest slot
+            if self.long_memory_mask_frame >= 0 and long_start <= self.long_memory_mask_frame <= long_end:
+                if self.long_memory_mask_frame not in long_indices:
+                    nearest = np.argmin(np.abs(long_indices.astype(int) - self.long_memory_mask_frame))
+                    long_indices[nearest] = self.long_memory_mask_frame
+                    long_indices = np.sort(long_indices)
+
             long_visual_inputs = visual_inputs[long_indices]
             long_motion_inputs = motion_inputs[long_indices]
 
@@ -204,11 +225,12 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
             if last_zero > 0:
                 memory_key_padding_mask[:last_zero] = float('-inf')
 
-            # Mask a specific frame once it has arrived in the long memory window
+            # Apply per-frame attention biases: other frames get other_frames_bias, target gets target_frame_bias
             if self.long_memory_mask_frame >= 0 and work_start > self.long_memory_mask_frame:
-                mask_positions = np.where(long_indices == self.long_memory_mask_frame)[0]
-                if len(mask_positions) > 0:
-                    memory_key_padding_mask[mask_positions] = float('-inf')
+                keep_positions = np.where(long_indices == self.long_memory_mask_frame)[0]
+                if len(keep_positions) > 0:
+                    memory_key_padding_mask[:] = self.long_memory_other_frames_bias
+                    memory_key_padding_mask[keep_positions] = self.long_memory_target_frame_bias
         else:
             long_visual_inputs = None
             long_motion_inputs = None

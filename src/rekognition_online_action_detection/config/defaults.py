@@ -52,6 +52,10 @@ _C.MODEL.LSTR.DEC_MODULE = [-1, 2, True]
 _C.MODEL.LSTR.INFERENCE_MODE = 'batch'
 # Frame index at which long memory masking begins (-1 = disabled)
 _C.MODEL.LSTR.LONG_MEMORY_MASK_FRAME = -1
+# Attention logit bias added to the target frame (0.0 = no effect, +5.0 = boost)
+_C.MODEL.LSTR.LONG_MEMORY_TARGET_FRAME_BIAS = 0.0
+# Attention logit bias added to all other long-memory frames (float('-inf') = hide, 0.0 = no effect)
+_C.MODEL.LSTR.LONG_MEMORY_OTHER_FRAMES_BIAS = float('-inf')
 
 # ---------------------------------------------------------------------------- #
 # Criterion
