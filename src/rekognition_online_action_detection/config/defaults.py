@@ -54,6 +54,10 @@ _C.MODEL.LSTR.INFERENCE_MODE = 'batch'
 _C.MODEL.LSTR.LONG_MEMORY_MASK_FRAME = -1
 # Fraction of valid long memory frames to randomly mask (0.0 = disabled, e.g. 0.25/0.5/0.75)
 _C.MODEL.LSTR.LONG_MEMORY_MASK_RATIO = 0.0
+# Attention logit bias for randomly masked frames (float('-inf') = hide, 0.0 = no effect)
+_C.MODEL.LSTR.LONG_MEMORY_MASKED_FRAMES_BIAS = float('-inf')
+# Attention logit bias for frames not randomly masked (0.0 = no effect, +5.0 = boost)
+_C.MODEL.LSTR.LONG_MEMORY_UNMASKED_FRAMES_BIAS = 0.0
 
 # ---------------------------------------------------------------------------- #
 # Criterion

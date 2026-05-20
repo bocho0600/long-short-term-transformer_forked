@@ -20,6 +20,9 @@ MODEL:
     LONG_MEMORY_SAMPLE_RATE: 4
     WORK_MEMORY_SECONDS: 8
     WORK_MEMORY_SAMPLE_RATE: 1
+    LONG_MEMORY_MASK_RATIO: 0.0           # fraction of frames to randomly mask (0.0 = disabled)
+    LONG_MEMORY_MASKED_FRAMES_BIAS: -.inf  # bias for masked frames (-.inf=hide, 0=neutral)
+    LONG_MEMORY_UNMASKED_FRAMES_BIAS: 0.0  # bias for unmasked frames (0=neutral, +5=boost)
     ENC_MODULE: [
       [16, 1, True], [32, 2, True]
     ]

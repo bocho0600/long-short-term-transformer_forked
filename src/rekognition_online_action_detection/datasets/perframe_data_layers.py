@@ -29,6 +29,8 @@ class LSTRDataLayer(data.Dataset):
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
         self.long_memory_mask_frame = cfg.MODEL.LSTR.LONG_MEMORY_MASK_FRAME
         self.long_memory_mask_ratio = cfg.MODEL.LSTR.LONG_MEMORY_MASK_RATIO
+        self.long_memory_masked_frames_bias = cfg.MODEL.LSTR.LONG_MEMORY_MASKED_FRAMES_BIAS
+        self.long_memory_unmasked_frames_bias = cfg.MODEL.LSTR.LONG_MEMORY_UNMASKED_FRAMES_BIAS
         self.training = phase == 'train'
 
         self._init_dataset()
@@ -110,7 +112,10 @@ class LSTRDataLayer(data.Dataset):
                 valid = np.where(memory_key_padding_mask == 0)[0]
                 n = int(len(valid) * self.long_memory_mask_ratio)
                 if n > 0:
-                    memory_key_padding_mask[np.random.choice(valid, size=n, replace=False)] = float('-inf')
+                    masked = np.random.choice(valid, size=n, replace=False)
+                    memory_key_padding_mask[masked] = self.long_memory_masked_frames_bias
+                    unmasked = np.setdiff1d(valid, masked)
+                    memory_key_padding_mask[unmasked] = self.long_memory_unmasked_frames_bias
         else:
             long_visual_inputs = None
             long_motion_inputs = None
@@ -157,6 +162,8 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
         self.long_memory_mask_frame = cfg.MODEL.LSTR.LONG_MEMORY_MASK_FRAME
         self.long_memory_mask_ratio = cfg.MODEL.LSTR.LONG_MEMORY_MASK_RATIO
+        self.long_memory_masked_frames_bias = cfg.MODEL.LSTR.LONG_MEMORY_MASKED_FRAMES_BIAS
+        self.long_memory_unmasked_frames_bias = cfg.MODEL.LSTR.LONG_MEMORY_UNMASKED_FRAMES_BIAS
 
         assert phase == 'test', 'phase must be `test` for batch inference, got {}'
 
@@ -224,7 +231,10 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
                 valid = np.where(memory_key_padding_mask == 0)[0]
                 n = int(len(valid) * self.long_memory_mask_ratio)
                 if n > 0:
-                    memory_key_padding_mask[np.random.choice(valid, size=n, replace=False)] = float('-inf')
+                    masked = np.random.choice(valid, size=n, replace=False)
+                    memory_key_padding_mask[masked] = self.long_memory_masked_frames_bias
+                    unmasked = np.setdiff1d(valid, masked)
+                    memory_key_padding_mask[unmasked] = self.long_memory_unmasked_frames_bias
         else:
             long_visual_inputs = None
             long_motion_inputs = None
