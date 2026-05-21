@@ -28,6 +28,7 @@ class LSTRDataLayer(data.Dataset):
         self.work_memory_sample_rate = cfg.MODEL.LSTR.WORK_MEMORY_SAMPLE_RATE
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
         self.training = phase == 'train'
+        self.long_memory_oracle_mask = cfg.MODEL.LSTR.LONG_MEMORY_ORACLE_MASK
 
         self._init_dataset()
 
@@ -36,8 +37,12 @@ class LSTRDataLayer(data.Dataset):
 
     def _init_dataset(self):
         self.inputs = []
+        if self.long_memory_oracle_mask:
+            self.session_targets = {}
         for session in self.sessions:
             target = np.load(osp.join(self.data_root, self.target_perframe, session + '.npy'))
+            if self.long_memory_oracle_mask:
+                self.session_targets[session] = target
             seed = np.random.randint(self.work_memory_length) if self.training else 0
             for work_start, work_end in zip(
                 range(seed, target.shape[0], self.work_memory_length),
@@ -96,6 +101,15 @@ class LSTRDataLayer(data.Dataset):
             last_zero = bisect_right(long_indices, 0) - 1
             if last_zero > 0:
                 memory_key_padding_mask[:last_zero] = float('-inf')
+
+            # Oracle mask: hide background frames using ground-truth labels
+            if self.long_memory_oracle_mask:
+                full_target = self.session_targets[session]
+                valid = np.where(memory_key_padding_mask == 0)[0]
+                if len(valid) > 0:
+                    frame_idxs = long_indices[valid].clip(0, len(full_target) - 1)
+                    has_action = np.any(full_target[frame_idxs, 1:], axis=1)
+                    memory_key_padding_mask[valid[~has_action]] = float('-inf')
         else:
             long_visual_inputs = None
             long_motion_inputs = None
@@ -140,12 +154,17 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
         self.work_memory_length = cfg.MODEL.LSTR.WORK_MEMORY_LENGTH
         self.work_memory_sample_rate = cfg.MODEL.LSTR.WORK_MEMORY_SAMPLE_RATE
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
+        self.long_memory_oracle_mask = cfg.MODEL.LSTR.LONG_MEMORY_ORACLE_MASK
 
         assert phase == 'test', 'phase must be `test` for batch inference, got {}'
 
         self.inputs = []
+        if self.long_memory_oracle_mask:
+            self.session_targets = {}
         for session in self.sessions:
             target = np.load(osp.join(self.data_root, self.target_perframe, session + '.npy'))
+            if self.long_memory_oracle_mask:
+                self.session_targets[session] = target
             for work_start, work_end in zip(
                 range(0, target.shape[0] + 1),
                 range(self.work_memory_length, target.shape[0] + 1)):
@@ -195,6 +214,15 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
             last_zero = bisect_right(long_indices, 0) - 1
             if last_zero > 0:
                 memory_key_padding_mask[:last_zero] = float('-inf')
+
+            # Oracle mask: hide background frames using ground-truth labels
+            if self.long_memory_oracle_mask:
+                full_target = self.session_targets[session]
+                valid = np.where(memory_key_padding_mask == 0)[0]
+                if len(valid) > 0:
+                    frame_idxs = long_indices[valid].clip(0, len(full_target) - 1)
+                    has_action = np.any(full_target[frame_idxs, 1:], axis=1)
+                    memory_key_padding_mask[valid[~has_action]] = float('-inf')
         else:
             long_visual_inputs = None
             long_motion_inputs = None

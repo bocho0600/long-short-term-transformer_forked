@@ -50,6 +50,8 @@ _C.MODEL.LSTR.ENC_MODULE = [
 _C.MODEL.LSTR.DEC_MODULE = [-1, 2, True]
 # Inference modes
 _C.MODEL.LSTR.INFERENCE_MODE = 'batch'
+# Oracle experiment: mask background long-memory frames using ground-truth labels
+_C.MODEL.LSTR.LONG_MEMORY_ORACLE_MASK = False
 
 # ---------------------------------------------------------------------------- #
 # Criterion
