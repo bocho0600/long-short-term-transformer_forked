@@ -121,7 +121,10 @@ class LSTRDataLayer(data.Dataset):
                             keep = full_target[frame_idxs, dominant_class].astype(bool)
                         else:
                             keep = np.ones(len(valid), dtype=bool)  # work window is background, keep all
-                    memory_key_padding_mask[valid[~keep]] = float('-inf')
+                    # Safety: if all valid frames would be masked, keep them all to avoid
+                    # all-inf attention input which produces NaN in softmax
+                    if keep.any():
+                        memory_key_padding_mask[valid[~keep]] = float('-inf')
         else:
             long_visual_inputs = None
             long_motion_inputs = None
@@ -246,7 +249,10 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
                             keep = full_target[frame_idxs, dominant_class].astype(bool)
                         else:
                             keep = np.ones(len(valid), dtype=bool)  # work window is background, keep all
-                    memory_key_padding_mask[valid[~keep]] = float('-inf')
+                    # Safety: if all valid frames would be masked, keep them all to avoid
+                    # all-inf attention input which produces NaN in softmax
+                    if keep.any():
+                        memory_key_padding_mask[valid[~keep]] = float('-inf')
         else:
             long_visual_inputs = None
             long_motion_inputs = None
