@@ -22,13 +22,11 @@ MODEL:
       [16, 1, True], [32, 2, True]
     ]
     DEC_MODULE: [-1, 2, True]
-    # Oracle experiment: mask background long-memory frames using ground-truth labels.
-    # If this improves mAP over the baseline, it confirms that long-memory noise hurts
-    # and motivates learning a filter.
+    # Oracle experiment: keep only long-memory frames matching the dominant action
+    # class in the current work window. Stronger than all_actions — tests whether
+    # class-specific long-term context helps beyond just removing background.
     LONG_MEMORY_ORACLE_MASK: True
-    # 'all_actions': keep any long-memory frame with an active action class, mask background frames
-    # 'match_class': keep only frames matching the dominant action class in the current work window
-    LONG_MEMORY_ORACLE_MASK_MODE: 'all_actions'
+    LONG_MEMORY_ORACLE_MASK_MODE: 'match_class'
   CRITERIONS: [['MCE', {}]]
 DATA_LOADER:
   BATCH_SIZE: 16

@@ -29,6 +29,7 @@ class LSTRDataLayer(data.Dataset):
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
         self.training = phase == 'train'
         self.long_memory_oracle_mask = cfg.MODEL.LSTR.LONG_MEMORY_ORACLE_MASK
+        self.long_memory_oracle_mask_mode = cfg.MODEL.LSTR.LONG_MEMORY_ORACLE_MASK_MODE
 
         self._init_dataset()
 
@@ -102,14 +103,25 @@ class LSTRDataLayer(data.Dataset):
             if last_zero > 0:
                 memory_key_padding_mask[:last_zero] = float('-inf')
 
-            # Oracle mask: hide background frames using ground-truth labels
+            # Oracle mask: hide long-memory frames using ground-truth labels
             if self.long_memory_oracle_mask:
                 full_target = self.session_targets[session]
                 valid = np.where(memory_key_padding_mask == 0)[0]
                 if len(valid) > 0:
                     frame_idxs = long_indices[valid].clip(0, len(full_target) - 1)
-                    has_action = np.any(full_target[frame_idxs, 1:], axis=1)
-                    memory_key_padding_mask[valid[~has_action]] = float('-inf')
+                    if self.long_memory_oracle_mask_mode == 'all_actions':
+                        # Keep any frame with at least one active action class (non-background)
+                        keep = np.any(full_target[frame_idxs, 1:], axis=1)
+                    else:  # match_class
+                        # Keep only frames matching the dominant action class in the work window
+                        class_counts = target.sum(axis=0)
+                        class_counts[0] = 0  # exclude background
+                        dominant_class = int(np.argmax(class_counts))
+                        if dominant_class > 0:
+                            keep = full_target[frame_idxs, dominant_class].astype(bool)
+                        else:
+                            keep = np.ones(len(valid), dtype=bool)  # work window is background, keep all
+                    memory_key_padding_mask[valid[~keep]] = float('-inf')
         else:
             long_visual_inputs = None
             long_motion_inputs = None
@@ -155,6 +167,7 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
         self.work_memory_sample_rate = cfg.MODEL.LSTR.WORK_MEMORY_SAMPLE_RATE
         self.work_memory_num_samples = cfg.MODEL.LSTR.WORK_MEMORY_NUM_SAMPLES
         self.long_memory_oracle_mask = cfg.MODEL.LSTR.LONG_MEMORY_ORACLE_MASK
+        self.long_memory_oracle_mask_mode = cfg.MODEL.LSTR.LONG_MEMORY_ORACLE_MASK_MODE
 
         assert phase == 'test', 'phase must be `test` for batch inference, got {}'
 
@@ -215,14 +228,25 @@ class LSTRBatchInferenceDataLayer(data.Dataset):
             if last_zero > 0:
                 memory_key_padding_mask[:last_zero] = float('-inf')
 
-            # Oracle mask: hide background frames using ground-truth labels
+            # Oracle mask: hide long-memory frames using ground-truth labels
             if self.long_memory_oracle_mask:
                 full_target = self.session_targets[session]
                 valid = np.where(memory_key_padding_mask == 0)[0]
                 if len(valid) > 0:
                     frame_idxs = long_indices[valid].clip(0, len(full_target) - 1)
-                    has_action = np.any(full_target[frame_idxs, 1:], axis=1)
-                    memory_key_padding_mask[valid[~has_action]] = float('-inf')
+                    if self.long_memory_oracle_mask_mode == 'all_actions':
+                        # Keep any frame with at least one active action class (non-background)
+                        keep = np.any(full_target[frame_idxs, 1:], axis=1)
+                    else:  # match_class
+                        # Keep only frames matching the dominant action class in the work window
+                        class_counts = target.sum(axis=0)
+                        class_counts[0] = 0  # exclude background
+                        dominant_class = int(np.argmax(class_counts))
+                        if dominant_class > 0:
+                            keep = full_target[frame_idxs, dominant_class].astype(bool)
+                        else:
+                            keep = np.ones(len(valid), dtype=bool)  # work window is background, keep all
+                    memory_key_padding_mask[valid[~keep]] = float('-inf')
         else:
             long_visual_inputs = None
             long_motion_inputs = None

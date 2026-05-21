@@ -52,6 +52,9 @@ _C.MODEL.LSTR.DEC_MODULE = [-1, 2, True]
 _C.MODEL.LSTR.INFERENCE_MODE = 'batch'
 # Oracle experiment: mask background long-memory frames using ground-truth labels
 _C.MODEL.LSTR.LONG_MEMORY_ORACLE_MASK = False
+# 'all_actions': keep any frame with an active action class, mask background
+# 'match_class': keep only frames matching the dominant action class in the work window
+_C.MODEL.LSTR.LONG_MEMORY_ORACLE_MASK_MODE = 'all_actions'
 
 # ---------------------------------------------------------------------------- #
 # Criterion
