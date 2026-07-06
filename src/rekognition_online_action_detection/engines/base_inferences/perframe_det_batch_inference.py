@@ -65,3 +65,24 @@ def do_perframe_det_batch_inference(cfg, model, device, logger):
     logger.info('Action detection perframe m{}: {:.5f}'.format(
         cfg.DATA.METRICS, result['mean_AP']
     ))
+
+    # Segmentation-based metrics (segmental edit score, F1@k). These operate on
+    # per-video action segments rather than isolated frames, so they capture how
+    # well the model localizes action<->background transitions. Ambiguous frames
+    # are handled as background via ignore_index, so postprocessing (which would
+    # delete them and corrupt the timeline) is disabled here.
+    segment_result = compute_result['segment'](
+        cfg,
+        gt_targets,
+        pred_scores,
+        postprocessing=None,
+    )
+    logger.info(
+        'Action detection segment metrics: edit {:.2f}, '
+        'F1@10 {:.2f}, F1@25 {:.2f}, F1@50 {:.2f}'.format(
+            segment_result['edit'],
+            segment_result['F1@10'],
+            segment_result['F1@25'],
+            segment_result['F1@50'],
+        )
+    )

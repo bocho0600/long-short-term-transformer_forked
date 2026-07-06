@@ -4,6 +4,7 @@
 from .postprocessing import postprocessing as default_pp
 from .metrics import perframe_average_precision
 from .metrics import perstage_average_precision
+from .metrics import perframe_segment_scores
 
 from rekognition_online_action_detection.utils.registry import Registry
 
@@ -23,6 +24,25 @@ def eval_perframe(cfg, ground_truth, prediction, **kwargs):
         ignore_index=ignore_index,
         metrics=metrics,
         postprocessing=postprocessing,
+    )
+
+
+@compute_result.register('segment')
+def eval_segment(cfg, ground_truth, prediction, **kwargs):
+    """Segmentation-based metrics (segmental edit score, F1@k).
+
+    Expects `ground_truth` and `prediction` as dicts mapping session ->
+    per-frame class arrays, so segments are extracted per video.
+    """
+    ignore_index = kwargs.get('ignore_index', cfg.DATA.IGNORE_INDEX)
+    postprocessing = kwargs.get('postprocessing', default_pp(cfg.DATA.DATA_NAME))
+    overlaps = kwargs.get('overlaps', (0.1, 0.25, 0.5))
+    return perframe_segment_scores(
+        ground_truth=ground_truth,
+        prediction=prediction,
+        ignore_index=ignore_index,
+        postprocessing=postprocessing,
+        overlaps=overlaps,
     )
 
 
