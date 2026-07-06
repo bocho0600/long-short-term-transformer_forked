@@ -44,6 +44,22 @@ def do_perframe_det_train(cfg,
                     det_score = model(*[x.to(device) for x in data[:-1]])
                     det_score = det_score.reshape(-1, cfg.DATA.NUM_CLASSES)
                     det_target = det_target.reshape(-1, cfg.DATA.NUM_CLASSES)
+
+                    # Guard against non-finite model outputs (e.g. exploding
+                    # logits or an all-masked attention row). This turns an
+                    # otherwise-cryptic downstream sklearn crash into an
+                    # actionable log and keeps the run alive: a small count
+                    # points at a few bad windows (masking), a large/growing
+                    # count points at training divergence.
+                    num_bad = (~torch.isfinite(det_score)).any(dim=1).sum().item()
+                    if num_bad > 0:
+                        logger.warning(
+                            '{} epoch {}: {}/{} frames had non-finite model '
+                            'output; sanitizing.'.format(
+                                phase, epoch, num_bad, det_score.shape[0]))
+                        det_score = torch.nan_to_num(
+                            det_score, nan=0.0, posinf=0.0, neginf=0.0)
+
                     det_loss = criterion['MCE'](det_score, det_target)
                     det_losses[phase] += det_loss.item() * batch_size
 
@@ -55,8 +71,15 @@ def do_perframe_det_train(cfg,
 
                     if training:
                         optimizer.zero_grad()
-                        det_loss.backward()
-                        optimizer.step()
+                        # Skip the update on a non-finite loss so bad gradients
+                        # don't poison the weights and cascade to every later batch.
+                        if torch.isfinite(det_loss):
+                            det_loss.backward()
+                            optimizer.step()
+                        else:
+                            logger.warning(
+                                'train epoch {}: non-finite det_loss, '
+                                'skipping optimizer step.'.format(epoch))
                         scheduler.step()
                     else:
                         # Prepare for evaluation
