@@ -33,6 +33,15 @@ class LSTR(nn.Module):
         self.activation = cfg.MODEL.LSTR.ACTIVATION
         self.num_classes = cfg.DATA.NUM_CLASSES
 
+        # Attention-guided long-memory frame selection (inference-time only).
+        self.frame_selection_enabled = cfg.MODEL.LSTR.FRAME_SELECTION.ENABLED
+        self.frame_selection_top_k = cfg.MODEL.LSTR.FRAME_SELECTION.TOP_K
+        self.frame_selection_mode = cfg.MODEL.LSTR.FRAME_SELECTION.MODE
+        if self.frame_selection_enabled and self.frame_selection_mode != 'drop':
+            raise NotImplementedError(
+                "FRAME_SELECTION.MODE '{}' is not implemented yet; only 'drop' "
+                'is supported.'.format(self.frame_selection_mode))
+
         # Build position encoding
         self.pos_encoding = tr.PositionalEncoding(self.d_model, self.dropout)
 
@@ -78,6 +87,61 @@ class LSTR(nn.Module):
         # Build classifier
         self.classifier = nn.Linear(self.d_model, self.num_classes)
 
+    def _select_and_compress_long_memory(self, query, long_memories,
+                                         memory_key_padding_mask):
+        """Attention-guided top-k long-memory frame selection before stage-1
+        compression (Variant 2 / V2a, 'drop' mode, inference-time only).
+
+        A first stage-1 pass scores each frame by the cross-attention weight it
+        receives (mean over heads and over the query tokens); the top-k frames
+        are then re-compressed on their own, so the 16 compressed tokens
+        summarize only the selected frames. Downstream shapes are unchanged.
+
+        Args:
+            query: (Q, B, D) stage-1 learnable queries (Q = 16).
+            long_memories: (N, B, D) positional-encoded long-memory frames.
+            memory_key_padding_mask: (B, N) additive float mask (0 / -inf), or None.
+        Returns:
+            (Q, B, D) compressed long-memory tokens.
+        """
+        num_frames = long_memories.shape[0]
+        top_k = self.frame_selection_top_k
+
+        # Nothing to prune -> identical to the baseline stage-1 compression.
+        if top_k >= num_frames:
+            return self.enc_modules[0](
+                query, long_memories,
+                memory_key_padding_mask=memory_key_padding_mask)
+
+        # Pass 1: score frames from the stage-1 cross-attention weights.
+        _, attn_weights = self.enc_modules[0](
+            query, long_memories,
+            memory_key_padding_mask=memory_key_padding_mask,
+            need_weights=True)                       # (B, H, Q, N)
+        score = attn_weights.mean(dim=1).mean(dim=1)  # (B, N)
+
+        # Never select masked (padded/oracle) frames: -inf sinks them below top-k.
+        if memory_key_padding_mask is not None:
+            score = score + memory_key_padding_mask
+
+        topk_idx = score.topk(top_k, dim=1).indices   # (B, k)
+        topk_idx, _ = torch.sort(topk_idx, dim=1)      # keep temporal order
+
+        # Gather the selected frames: (N, B, D) -> (k, B, D).
+        idx = topk_idx.transpose(0, 1).unsqueeze(-1).expand(
+            top_k, -1, long_memories.shape[-1])
+        selected = torch.gather(long_memories, 0, idx)
+
+        # Gather the matching mask entries: (B, N) -> (B, k).
+        if memory_key_padding_mask is not None:
+            selected_mask = torch.gather(memory_key_padding_mask, 1, topk_idx)
+        else:
+            selected_mask = None
+
+        # Pass 2: compress over the selected frames only.
+        return self.enc_modules[0](
+            query, selected, memory_key_padding_mask=selected_mask)
+
     def forward(self, visual_inputs, motion_inputs, memory_key_padding_mask=None):
         if self.long_enabled:
             # Compute long memories
@@ -95,8 +159,12 @@ class LSTR(nn.Module):
 
                 # Encode long memories
                 if enc_queries[0] is not None:
-                    long_memories = self.enc_modules[0](enc_queries[0], long_memories,
-                                                        memory_key_padding_mask=memory_key_padding_mask)
+                    if self.frame_selection_enabled:
+                        long_memories = self._select_and_compress_long_memory(
+                            enc_queries[0], long_memories, memory_key_padding_mask)
+                    else:
+                        long_memories = self.enc_modules[0](enc_queries[0], long_memories,
+                                                            memory_key_padding_mask=memory_key_padding_mask)
                 else:
                     long_memories = self.enc_modules[0](long_memories)
                 for enc_query, enc_module in zip(enc_queries[1:], self.enc_modules[1:]):

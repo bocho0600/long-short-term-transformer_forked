@@ -13,7 +13,7 @@ class DotProductAttention(nn.Module):
 
         self.dropout = dropout
 
-    def forward(self, q, k, v, attn_mask=None):
+    def forward(self, q, k, v, attn_mask=None, need_weights=False):
         attn_output_weights = torch.bmm(q, k.transpose(1, 2))
 
         if attn_mask is not None:
@@ -24,6 +24,8 @@ class DotProductAttention(nn.Module):
                                         p=self.dropout,
                                         training=self.training)
         attn_output = torch.bmm(attn_output_weights, v)
+        if need_weights:
+            return attn_output, attn_output_weights
         return attn_output
 
 
@@ -94,7 +96,7 @@ class MultiheadAttention(nn.Module):
 
         self.dotproductattention = DotProductAttention(dropout)
 
-    def forward(self, q, k, v, attn_mask=None, key_padding_mask=None):
+    def forward(self, q, k, v, attn_mask=None, key_padding_mask=None, need_weights=False):
         tsz, bsz, embed_dim = q.shape[0], q.shape[1], q.shape[2]
 
         head_dim = embed_dim // self.num_heads
@@ -151,9 +153,19 @@ class MultiheadAttention(nn.Module):
         else:
             mask = None
 
-        attn_output = self.dotproductattention(q, k, v, mask)
+        if need_weights:
+            attn_output, attn_output_weights = self.dotproductattention(
+                q, k, v, mask, need_weights=True)
+        else:
+            attn_output = self.dotproductattention(q, k, v, mask)
         attn_output = attn_output.transpose(0, 1).contiguous().view(tsz, bsz,
                                                                     self.embed_dim)
+        if need_weights:
+            # (bsz * num_heads, tsz, src_len) -> (bsz, num_heads, tsz, src_len).
+            # The flattened batch dim is batch-major, head-minor (b * H + h).
+            attn_output_weights = attn_output_weights.view(
+                bsz, self.num_heads, tsz, -1)
+            return self.out_proj(attn_output), attn_output_weights
         return self.out_proj(attn_output), None
 
 

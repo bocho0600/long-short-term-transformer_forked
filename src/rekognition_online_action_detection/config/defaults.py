@@ -48,6 +48,17 @@ _C.MODEL.LSTR.ENC_MODULE = [
     [16, 1, True], [32, 2, True]
 ]
 _C.MODEL.LSTR.DEC_MODULE = [-1, 2, True]
+# Attention-guided long-memory frame selection (Variant 2 / V2a).
+# Inference-time only: score long-memory frames by the stage-1 cross-attention
+# weights and keep only the top-k before compressing them. Disabled by default
+# so the baseline forward path is byte-for-byte unchanged.
+_C.MODEL.LSTR.FRAME_SELECTION = CN()
+_C.MODEL.LSTR.FRAME_SELECTION.ENABLED = False
+# Absolute number of long-memory frames to keep before stage-1 compression.
+_C.MODEL.LSTR.FRAME_SELECTION.TOP_K = 128
+# 'drop': discard non-selected frames. 'fuse': combine them into one
+# score-weighted token (EViT-style). Only 'drop' is implemented for now.
+_C.MODEL.LSTR.FRAME_SELECTION.MODE = 'drop'
 # Inference modes
 _C.MODEL.LSTR.INFERENCE_MODE = 'batch'
 

@@ -102,18 +102,29 @@ class TransformerDecoder(nn.Module):
 
     def forward(self, tgt, memory, tgt_mask=None,
                 memory_mask=None, tgt_key_padding_mask=None,
-                memory_key_padding_mask=None):
+                memory_key_padding_mask=None, need_weights=False):
         output = tgt
+        attn_weights = None
 
         for mod in self.layers:
-            output = mod(output, memory, tgt_mask=tgt_mask,
-                         memory_mask=memory_mask,
-                         tgt_key_padding_mask=tgt_key_padding_mask,
-                         memory_key_padding_mask=memory_key_padding_mask)
+            if need_weights:
+                output, attn_weights = mod(output, memory, tgt_mask=tgt_mask,
+                                           memory_mask=memory_mask,
+                                           tgt_key_padding_mask=tgt_key_padding_mask,
+                                           memory_key_padding_mask=memory_key_padding_mask,
+                                           need_weights=True)
+            else:
+                output = mod(output, memory, tgt_mask=tgt_mask,
+                             memory_mask=memory_mask,
+                             tgt_key_padding_mask=tgt_key_padding_mask,
+                             memory_key_padding_mask=memory_key_padding_mask)
 
         if self.norm is not None:
             output = self.norm(output)
 
+        if need_weights:
+            # Cross-attention weights from the last decoder layer.
+            return output, attn_weights
         return output
 
 
@@ -204,18 +215,22 @@ class TransformerDecoderLayer(nn.Module):
         return tgt
 
     def forward(self, tgt, memory, tgt_mask=None, memory_mask=None,
-                tgt_key_padding_mask=None, memory_key_padding_mask=None):
+                tgt_key_padding_mask=None, memory_key_padding_mask=None,
+                need_weights=False):
         tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
-        tgt2 = self.multihead_attn(tgt, memory, memory, attn_mask=memory_mask,
-                                   key_padding_mask=memory_key_padding_mask)[0]
+        tgt2, attn_weights = self.multihead_attn(
+            tgt, memory, memory, attn_mask=memory_mask,
+            key_padding_mask=memory_key_padding_mask, need_weights=need_weights)
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout3(tgt2)
         tgt = self.norm3(tgt)
+        if need_weights:
+            return tgt, attn_weights
         return tgt
 
 
