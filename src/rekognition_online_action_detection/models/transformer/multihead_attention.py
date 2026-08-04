@@ -96,8 +96,12 @@ class MultiheadAttention(nn.Module):
 
         self.dotproductattention = DotProductAttention(dropout)
 
-    def forward(self, q, k, v, attn_mask=None, key_padding_mask=None, need_weights=False):
+    def forward(self, q, k, v, attn_mask=None, key_padding_mask=None,
+                need_weights=False, select_top_k=None):
         tsz, bsz, embed_dim = q.shape[0], q.shape[1], q.shape[2]
+
+        # Keep the un-reshaped (bsz, src_len) key padding mask for frame scoring.
+        orig_key_padding_mask = key_padding_mask
 
         head_dim = embed_dim // self.num_heads
         assert head_dim * self.num_heads == embed_dim, \
@@ -153,7 +157,13 @@ class MultiheadAttention(nn.Module):
         else:
             mask = None
 
-        if need_weights:
+        if select_top_k is not None:
+            # Single-pass EViT-style frame selection: rank keys by the
+            # attention they receive, keep the top-k, renormalize over them.
+            attn_output, attn_output_weights = self._select_attention(
+                q, k, v, mask, bsz, tsz, orig_key_padding_mask, select_top_k)
+            need_weights = True
+        elif need_weights:
             attn_output, attn_output_weights = self.dotproductattention(
                 q, k, v, mask, need_weights=True)
         else:
@@ -167,6 +177,57 @@ class MultiheadAttention(nn.Module):
                 bsz, self.num_heads, tsz, -1)
             return self.out_proj(attn_output), attn_output_weights
         return self.out_proj(attn_output), None
+
+    def _select_attention(self, q, k, v, mask, bsz, tsz,
+                          key_padding_mask, top_k):
+        """Single-pass top-k key selection (EViT-style).
+
+        Computes the attention distribution over all keys once, ranks keys by
+        the attention they receive (mean over heads and query tokens), keeps
+        the top-k, and renormalizes the distribution over just those keys
+        before the value aggregation. This yields the same result as recomputing
+        the attention over only the selected keys (softmax over a subset equals
+        the full softmax restricted to that subset and renormalized), but in a
+        single pass -- no second compression pass.
+
+        Args:
+            q, k, v: (bsz * num_heads, seq, head_dim) projected/scaled tensors.
+            mask: additive attention mask broadcast to (bsz * num_heads, tsz, src_len), or None.
+            key_padding_mask: original (bsz, src_len) additive mask (0 / -inf), or None.
+            top_k: number of keys to keep.
+        Returns:
+            attn_output: (bsz * num_heads, tsz, head_dim)
+            weights: (bsz * num_heads, tsz, src_len) renormalized over kept keys.
+        """
+        src_len = k.shape[1]
+        num_heads = self.num_heads
+
+        weights = torch.bmm(q, k.transpose(1, 2))            # (B*H, tsz, src)
+        if mask is not None:
+            weights = weights + mask
+        weights = F.softmax(weights, dim=-1)
+
+        # Per-frame importance: mean over heads and query tokens -> (B, src).
+        w4 = weights.view(bsz, num_heads, tsz, src_len)
+        score = w4.mean(dim=1).mean(dim=1)                   # (B, src)
+        # Never keep padded/masked frames.
+        if key_padding_mask is not None:
+            score = score + key_padding_mask
+
+        keep_k = min(int(top_k), src_len)
+        topk_idx = score.topk(keep_k, dim=1).indices         # (B, k)
+        keep = torch.zeros(bsz, src_len, dtype=torch.bool, device=weights.device)
+        keep.scatter_(1, topk_idx, True)                     # (B, src)
+
+        # Zero out non-selected keys and renormalize over the kept ones.
+        w4 = w4.masked_fill(~keep.view(bsz, 1, 1, src_len), 0.0)
+        w4 = w4 / w4.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+        weights = w4.reshape(bsz * num_heads, tsz, src_len)
+
+        weights = F.dropout(weights, p=self.dotproductattention.dropout,
+                            training=self.training)
+        attn_output = torch.bmm(weights, v)                  # (B*H, tsz, head_dim)
+        return attn_output, weights
 
 
 class MultiheadAttentionStream(MultiheadAttention):

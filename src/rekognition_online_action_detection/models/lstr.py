@@ -160,8 +160,11 @@ class LSTR(nn.Module):
                 # Encode long memories
                 if enc_queries[0] is not None:
                     if self.frame_selection_enabled:
-                        long_memories = self._select_and_compress_long_memory(
-                            enc_queries[0], long_memories, memory_key_padding_mask)
+                        # Single-pass: prune keys inside the stage-1 attention.
+                        long_memories = self.enc_modules[0](
+                            enc_queries[0], long_memories,
+                            memory_key_padding_mask=memory_key_padding_mask,
+                            select_top_k=self.frame_selection_top_k)
                     else:
                         long_memories = self.enc_modules[0](enc_queries[0], long_memories,
                                                             memory_key_padding_mask=memory_key_padding_mask)

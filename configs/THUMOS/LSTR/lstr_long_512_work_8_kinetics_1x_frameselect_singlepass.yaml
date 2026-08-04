@@ -1,0 +1,49 @@
+DATA:
+  DATA_NAME: 'THUMOS'
+INPUT:
+  MODALITY: 'twostream'
+  VISUAL_FEATURE: 'rgb_kinetics_resnet50'
+  MOTION_FEATURE: 'flow_kinetics_bninception'
+MODEL:
+  MODEL_NAME: 'LSTR'
+  FEATURE_HEAD:
+    LINEAR_ENABLED: True
+    LINEAR_OUT_FEATURES: 1024
+  LSTR:
+    NUM_HEADS: 16
+    DIM_FEEDFORWARD: 1024
+    DROPOUT: 0.2
+    ACTIVATION: 'relu'
+    LONG_MEMORY_SECONDS: 2048
+    LONG_MEMORY_SAMPLE_RATE: 4     # -> LONG_MEMORY_NUM_SAMPLES = 512 frames
+    WORK_MEMORY_SECONDS: 8
+    WORK_MEMORY_SAMPLE_RATE: 1
+    ENC_MODULE: [
+      [16, 1, True], [32, 2, True]
+    ]
+    DEC_MODULE: [-1, 2, True]
+    # Attention-guided long-memory frame selection (Variant 2 / V2a),
+    # SINGLE-PASS implementation: keys are ranked and pruned *inside* the one
+    # stage-1 cross-attention (EViT-style), then the distribution is
+    # renormalized over the kept keys. Mathematically identical to the
+    # two-pass 'drop' but without the redundant second compression pass.
+    # Inference-time only; reuses the baseline checkpoint (no retraining).
+    FRAME_SELECTION:
+      ENABLED: True
+      TOP_K: 128                   # keep 128 / 512 frames; sweep e.g. {64, 128, 256}
+      MODE: 'drop'
+  CRITERIONS: [['MCE', {}]]
+DATA_LOADER:
+  BATCH_SIZE: 16
+  NUM_WORKERS: 8
+  PIN_MEMORY: True
+SOLVER:
+  NUM_EPOCHS: 25
+  OPTIMIZER: 'adam'
+  BASE_LR: 7e-05
+  WEIGHT_DECAY: 5e-05
+  SCHEDULER:
+    SCHEDULER_NAME: 'warmup_cosine'
+    WARMUP_FACTOR: 0.3
+    WARMUP_EPOCHS: 10.0
+    WARMUP_METHOD: 'linear'

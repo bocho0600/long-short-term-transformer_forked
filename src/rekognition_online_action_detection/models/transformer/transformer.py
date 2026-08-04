@@ -102,7 +102,8 @@ class TransformerDecoder(nn.Module):
 
     def forward(self, tgt, memory, tgt_mask=None,
                 memory_mask=None, tgt_key_padding_mask=None,
-                memory_key_padding_mask=None, need_weights=False):
+                memory_key_padding_mask=None, need_weights=False,
+                select_top_k=None):
         output = tgt
         attn_weights = None
 
@@ -112,12 +113,14 @@ class TransformerDecoder(nn.Module):
                                            memory_mask=memory_mask,
                                            tgt_key_padding_mask=tgt_key_padding_mask,
                                            memory_key_padding_mask=memory_key_padding_mask,
-                                           need_weights=True)
+                                           need_weights=True,
+                                           select_top_k=select_top_k)
             else:
                 output = mod(output, memory, tgt_mask=tgt_mask,
                              memory_mask=memory_mask,
                              tgt_key_padding_mask=tgt_key_padding_mask,
-                             memory_key_padding_mask=memory_key_padding_mask)
+                             memory_key_padding_mask=memory_key_padding_mask,
+                             select_top_k=select_top_k)
 
         if self.norm is not None:
             output = self.norm(output)
@@ -216,14 +219,15 @@ class TransformerDecoderLayer(nn.Module):
 
     def forward(self, tgt, memory, tgt_mask=None, memory_mask=None,
                 tgt_key_padding_mask=None, memory_key_padding_mask=None,
-                need_weights=False):
+                need_weights=False, select_top_k=None):
         tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
         tgt2, attn_weights = self.multihead_attn(
             tgt, memory, memory, attn_mask=memory_mask,
-            key_padding_mask=memory_key_padding_mask, need_weights=need_weights)
+            key_padding_mask=memory_key_padding_mask, need_weights=need_weights,
+            select_top_k=select_top_k)
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
