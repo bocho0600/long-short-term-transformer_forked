@@ -69,8 +69,18 @@ class FlopCounter:
         torch.bmm = self._orig_bmm
 
     def hook(self, module, label):
-        module.register_forward_pre_hook(lambda m, i: self.stack.append(label))
-        module.register_forward_hook(lambda m, i, o: self.stack.pop())
+        # NOTE: a forward hook that RETURNS a value replaces the module output,
+        # and a pre-hook that returns a value replaces the input. Both hooks
+        # must return None, so use statements (not expressions that return the
+        # popped/appended value).
+        def pre(m, i):
+            self.stack.append(label)
+
+        def post(m, i, o):
+            self.stack.pop()
+
+        module.register_forward_pre_hook(pre)
+        module.register_forward_hook(post)
 
     def total_flops(self):
         return 2 * sum(self.macs.values())
