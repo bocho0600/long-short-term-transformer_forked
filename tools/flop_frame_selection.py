@@ -13,9 +13,10 @@
 # Notes:
 #   * FLOP = 2 x MACs. softmax / layernorm / relu / pos-encoding are elementwise
 #     and not counted (negligible next to the matmuls).
-#   * FPS defaults to 1 (THUMOS in this repo: LONG 2048s / rate 4 -> 512 frames,
-#     WORK 8s -> 8 frames). Pass --fps to match your data_info if different; the
-#     script prints the derived frame counts so you can sanity-check them.
+#   * FPS defaults to 4 (THUMOS data_info fps=4). Frame counts derive as
+#     NUM_SAMPLES = SECONDS * fps / SAMPLE_RATE, e.g. LONG 512s / rate 4 @ 4fps
+#     -> 512 frames. Pass --fps to match your data_info if different; the script
+#     prints the derived frame counts so you can sanity-check them.
 
 import argparse
 from collections import OrderedDict
@@ -146,7 +147,7 @@ def fmt(flops):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--config_file', required=True)
-    p.add_argument('--fps', type=int, default=1)
+    p.add_argument('--fps', type=int, default=4)  # THUMOS features are at 4 fps
     p.add_argument('--num_classes', type=int, default=22)
     p.add_argument('--ignore_index', type=int, default=21)
     p.add_argument('--batch_size', type=int, default=1)

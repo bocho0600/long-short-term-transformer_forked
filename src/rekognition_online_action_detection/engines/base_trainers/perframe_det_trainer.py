@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 
 from rekognition_online_action_detection.evaluation import compute_result
+from rekognition_online_action_detection.utils.flops import report_resources
 
 
 def do_perframe_det_train(cfg,
@@ -19,6 +20,14 @@ def do_perframe_det_train(cfg,
                           device,
                           checkpointer,
                           logger):
+    # Report model size + compute once, before any DataParallel wrapping.
+    try:
+        sample_batch = next(iter(data_loaders['train']))
+        report_resources(cfg, model, sample_batch, device, logger,
+                         num_train_windows=len(data_loaders['train'].dataset))
+    except Exception as e:
+        logger.warning('Resource report skipped: {}'.format(e))
+
     # Setup model on multiple GPUs
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
