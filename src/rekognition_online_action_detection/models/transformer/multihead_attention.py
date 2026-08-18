@@ -98,10 +98,14 @@ class MultiheadAttention(nn.Module):
 
     def forward(self, q, k, v, attn_mask=None, key_padding_mask=None,
                 need_weights=False, select_top_k=None):
-        tsz, bsz, embed_dim = q.shape[0], q.shape[1], q.shape[2]
+        if select_top_k is not None:
+            # Single-pass EViT-style frame selection with GATHER + deferred
+            # V-projection: score keys, keep the top-k, then value-project and
+            # aggregate ONLY those k frames, so the attention cost shrinks with k.
+            return self._select_forward_gather(
+                q, k, v, attn_mask, key_padding_mask, select_top_k)
 
-        # Keep the un-reshaped (bsz, src_len) key padding mask for frame scoring.
-        orig_key_padding_mask = key_padding_mask
+        tsz, bsz, embed_dim = q.shape[0], q.shape[1], q.shape[2]
 
         head_dim = embed_dim // self.num_heads
         assert head_dim * self.num_heads == embed_dim, \
@@ -157,13 +161,7 @@ class MultiheadAttention(nn.Module):
         else:
             mask = None
 
-        if select_top_k is not None:
-            # Single-pass EViT-style frame selection: rank keys by the
-            # attention they receive, keep the top-k, renormalize over them.
-            attn_output, attn_output_weights = self._select_attention(
-                q, k, v, mask, bsz, tsz, orig_key_padding_mask, select_top_k)
-            need_weights = True
-        elif need_weights:
+        if need_weights:
             attn_output, attn_output_weights = self.dotproductattention(
                 q, k, v, mask, need_weights=True)
         else:
@@ -178,56 +176,86 @@ class MultiheadAttention(nn.Module):
             return self.out_proj(attn_output), attn_output_weights
         return self.out_proj(attn_output), None
 
-    def _select_attention(self, q, k, v, mask, bsz, tsz,
-                          key_padding_mask, top_k):
-        """Single-pass top-k key selection (EViT-style).
+    def _select_forward_gather(self, q_in, k_in, v_in, attn_mask,
+                               key_padding_mask, top_k):
+        """Single-pass top-k frame selection with gather + deferred V-projection.
 
-        Computes the attention distribution over all keys once, ranks keys by
-        the attention they receive (mean over heads and query tokens), keeps
-        the top-k, and renormalizes the distribution over just those keys
-        before the value aggregation. This yields the same result as recomputing
-        the attention over only the selected keys (softmax over a subset equals
-        the full softmax restricted to that subset and renormalized), but in a
-        single pass -- no second compression pass.
+        Q and all K are projected (K is needed to score every frame). The top-k
+        frames are then selected, and ONLY those k frames are value-projected and
+        aggregated -- so the V-projection and the value matmul cost scale with k,
+        not the full sequence length. The K-projection and the score matmul stay
+        full (attention needs every key to rank it), so this reduces compute but
+        cannot touch the feature head or the K-projection.
+
+        The output is mathematically identical to computing softmax over only the
+        selected keys (== the masking form, renormalized), just cheaper.
 
         Args:
-            q, k, v: (bsz * num_heads, seq, head_dim) projected/scaled tensors.
-            mask: additive attention mask broadcast to (bsz * num_heads, tsz, src_len), or None.
-            key_padding_mask: original (bsz, src_len) additive mask (0 / -inf), or None.
-            top_k: number of keys to keep.
+            q_in: (tsz, bsz, embed) query input.
+            k_in, v_in: (src, bsz, embed) memory input (same tensor for cross-attn).
+            attn_mask: additive (tsz, src) mask or None.
+            key_padding_mask: additive (bsz, src) mask (0 / -inf) or None.
+            top_k: number of frames to keep.
         Returns:
-            attn_output: (bsz * num_heads, tsz, head_dim)
-            weights: (bsz * num_heads, tsz, src_len) renormalized over kept keys.
+            (out_proj(attn_output), None): (tsz, bsz, embed) output.
         """
-        src_len = k.shape[1]
-        num_heads = self.num_heads
-
-        weights = torch.bmm(q, k.transpose(1, 2))            # (B*H, tsz, src)
-        if mask is not None:
-            weights = weights + mask
-        weights = F.softmax(weights, dim=-1)
-
-        # Per-frame importance: mean over heads and query tokens -> (B, src).
-        w4 = weights.view(bsz, num_heads, tsz, src_len)
-        score = w4.mean(dim=1).mean(dim=1)                   # (B, src)
-        # Never keep padded/masked frames.
-        if key_padding_mask is not None:
-            score = score + key_padding_mask
-
+        tsz, bsz, embed_dim = q_in.shape
+        src_len = k_in.shape[0]
+        H = self.num_heads
+        head_dim = embed_dim // H
+        scaling = float(head_dim) ** -0.5
         keep_k = min(int(top_k), src_len)
-        topk_idx = score.topk(keep_k, dim=1).indices         # (B, k)
-        keep = torch.zeros(bsz, src_len, dtype=torch.bool, device=weights.device)
-        keep.scatter_(1, topk_idx, True)                     # (B, src)
 
-        # Zero out non-selected keys and renormalize over the kept ones.
-        w4 = w4.masked_fill(~keep.view(bsz, 1, 1, src_len), 0.0)
-        w4 = w4 / w4.sum(dim=-1, keepdim=True).clamp_min(1e-12)
-        weights = w4.reshape(bsz * num_heads, tsz, src_len)
+        b = self.in_proj_bias
+        # Project Q and all K (K needed to score every frame).
+        wq, bq = self.in_proj_weight[:embed_dim], (b[:embed_dim] if b is not None else None)
+        wk, bk = self.in_proj_weight[embed_dim:2 * embed_dim], (b[embed_dim:2 * embed_dim] if b is not None else None)
+        q = F.linear(q_in, wq, bq) * scaling
+        k = F.linear(k_in, wk, bk)
+        q = q.contiguous().view(tsz, bsz * H, head_dim).transpose(0, 1)       # (B*H, tsz, hd)
+        k = k.contiguous().view(src_len, bsz * H, head_dim).transpose(0, 1)   # (B*H, src, hd)
 
+        scores = torch.bmm(q, k.transpose(1, 2))                             # (B*H, tsz, src)
+
+        # Additive mask over all keys (for scoring).
+        mask = None
+        if attn_mask is not None:
+            am = attn_mask.unsqueeze(0).repeat(bsz, 1, 1)
+            am = am.unsqueeze(1).repeat(1, H, 1, 1).reshape(-1, tsz, src_len)
+            mask = am
+        if key_padding_mask is not None:
+            kpm = key_padding_mask.unsqueeze(1).repeat(1, tsz, 1)
+            kpm = kpm.unsqueeze(1).repeat(1, H, 1, 1).reshape(-1, tsz, src_len)
+            mask = kpm if mask is None else mask + kpm
+        if mask is not None:
+            scores = scores + mask
+
+        # Per-frame importance from the full attention distribution.
+        probs = F.softmax(scores, dim=-1)
+        fscore = probs.view(bsz, H, tsz, src_len).mean(dim=1).mean(dim=1)     # (B, src)
+        if key_padding_mask is not None:
+            fscore = fscore + key_padding_mask                               # sink padded frames
+
+        topk_idx = fscore.topk(keep_k, dim=1).indices                        # (B, k)
+
+        # Deferred V-projection: gather RAW v for the selected frames, project only those.
+        v_gather = topk_idx.transpose(0, 1).unsqueeze(-1).expand(keep_k, bsz, embed_dim)
+        v_sel_in = torch.gather(v_in, 0, v_gather)                           # (k, bsz, embed)
+        wv, bv = self.in_proj_weight[2 * embed_dim:], (b[2 * embed_dim:] if b is not None else None)
+        v_sel = F.linear(v_sel_in, wv, bv)
+        v_sel = v_sel.contiguous().view(keep_k, bsz * H, head_dim).transpose(0, 1)  # (B*H, k, hd)
+
+        # Gather the score columns for the selected keys; softmax over just those.
+        idx_bh = topk_idx.unsqueeze(1).expand(bsz, H, keep_k).reshape(bsz * H, keep_k)
+        idx_cols = idx_bh.unsqueeze(1).expand(bsz * H, tsz, keep_k)
+        scores_sel = torch.gather(scores, 2, idx_cols)                       # (B*H, tsz, k)
+        weights = F.softmax(scores_sel, dim=-1)
         weights = F.dropout(weights, p=self.dotproductattention.dropout,
                             training=self.training)
-        attn_output = torch.bmm(weights, v)                  # (B*H, tsz, head_dim)
-        return attn_output, weights
+
+        attn_output = torch.bmm(weights, v_sel)                             # (B*H, tsz, hd)
+        attn_output = attn_output.transpose(0, 1).contiguous().view(tsz, bsz, embed_dim)
+        return self.out_proj(attn_output), None
 
 
 class MultiheadAttentionStream(MultiheadAttention):
