@@ -41,6 +41,9 @@ class LSTR(nn.Module):
             raise NotImplementedError(
                 "FRAME_SELECTION.MODE '{}' is not implemented yet; only 'drop' "
                 'is supported.'.format(self.frame_selection_mode))
+        # Log the selection status once on the first forward, so runs prove
+        # whether pruning is actually active (and by how much).
+        self._frame_selection_logged = False
 
         # Build position encoding
         self.pos_encoding = tr.PositionalEncoding(self.d_model, self.dropout)
@@ -160,6 +163,21 @@ class LSTR(nn.Module):
                 # Encode long memories
                 if enc_queries[0] is not None:
                     if self.frame_selection_enabled:
+                        if not self._frame_selection_logged:
+                            n_frames = long_memories.shape[0]
+                            keep = min(self.frame_selection_top_k, n_frames)
+                            if keep >= n_frames:
+                                print('[LSTR] frame selection ENABLED but TOP_K '
+                                      '({}) >= N ({}) -> keeping ALL frames '
+                                      '(no-op)'.format(self.frame_selection_top_k,
+                                                       n_frames), flush=True)
+                            else:
+                                print('[LSTR] single-pass frame selection ACTIVE: '
+                                      'keeping {} / {} long-memory frames '
+                                      '(mode={})'.format(keep, n_frames,
+                                                         self.frame_selection_mode),
+                                      flush=True)
+                            self._frame_selection_logged = True
                         # Single-pass: prune keys inside the stage-1 attention.
                         long_memories = self.enc_modules[0](
                             enc_queries[0], long_memories,
