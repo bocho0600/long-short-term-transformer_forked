@@ -71,6 +71,9 @@ Ground-truth masking of background long-memory frames (`all_actions` /
 - **`tools/flop_frame_selection.py`** — counts matmul FLOPs (F.linear + bmm) for
   one forward, per-stage breakdown, baseline vs TOP_K sweep, plus a training-run
   total estimate (`--epochs/--train_iters/--test_iters`). No GPU/checkpoint needed.
+- **`tools/benchmark_frame_selection.py`** — MEASURED wall-clock latency + params +
+  FLOPs, baseline vs TOP_K. Proves whether the FLOP saving becomes a real speedup
+  (and that params are unchanged — selection adds none). Run on the GPU node.
 - **`utils/flops.py` + trainer wiring** — logs params, forward GFLOPs/window, and
   estimated training PFLOPs at the **start of every training run**.
 - **Confirmation log** — on first forward, prints
@@ -145,6 +148,8 @@ Selection is wired only into the **batch** forward path (`LSTR.forward`);
 - [ ] Baseline vs selection mAP (hpc_run: run_job/run_lstr.pbs).
 - [ ] Accuracy-vs-k sweep (TOP_K ∈ {64,128,256,512}) → find the knee.
 - [ ] Confirm Upgrade A shows ~15% FLOP drop in the FLOP script output.
+- [ ] Benchmark measured latency on the A100 (tools/benchmark_frame_selection.py)
+      — does the ~16% FLOP drop become a real wall-clock speedup?
 - [ ] Segmentation metrics (edit score, F1@k) alongside mAP — richer than mAP for
       action/background transitions (prototype was on `feat/segment-based`).
 
