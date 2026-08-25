@@ -83,9 +83,10 @@ Ground-truth masking of background long-memory frames (`all_actions` /
 
 ### 6. Configs & jobs
 - `configs/THUMOS/LSTR/lstr_long_512_work_8_kinetics_1x_frameselect_singlepass.yaml`
-- `run_baseline_vs_select.pbs` — train one baseline, eval same checkpoint with
-  selection OFF then ON (clean head-to-head mAP; includes DataLoader OOM fix).
-- `run_frameselect.pbs` — train + test + FLOPs with the frameselect config.
+- **PBS run scripts live in the separate `hpc_run` repo** (`run_job/run_lstr.pbs`),
+  not in this repo. `run_lstr.pbs` trains one baseline, then evals the same
+  checkpoint with selection OFF then ON (clean head-to-head mAP), runs the FLOP
+  sweep, and includes the DataLoader OOM overrides.
 
 ---
 
@@ -117,7 +118,7 @@ Ground-truth masking of background long-memory frames (`all_actions` /
 - ⚠️ `test_net` OOM-crashed (DataLoader) — fixed since (BATCH_SIZE/NUM_WORKERS/
   PIN_MEMORY overrides). Canonical batch-inference mAP still to be captured.
 - ⚠️ **No baseline (selection-OFF) number yet** → can't yet quantify the accuracy
-  cost/benefit of selection. `run_baseline_vs_select.pbs` addresses this.
+  cost/benefit of selection. The `hpc_run` baseline-vs-selection job addresses this.
 
 ---
 
@@ -141,7 +142,7 @@ Selection is wired only into the **batch** forward path (`LSTR.forward`);
 `stream_inference` is untouched. Needed for online/streaming eval.
 
 ### Experiments to run
-- [ ] Baseline vs selection mAP at N=512 (run_baseline_vs_select.pbs).
+- [ ] Baseline vs selection mAP (hpc_run: run_job/run_lstr.pbs).
 - [ ] Accuracy-vs-k sweep (TOP_K ∈ {64,128,256,512}) → find the knee.
 - [ ] Confirm Upgrade A shows ~15% FLOP drop in the FLOP script output.
 - [ ] Segmentation metrics (edit score, F1@k) alongside mAP — richer than mAP for
@@ -151,9 +152,9 @@ Selection is wired only into the **batch** forward path (`LSTR.forward`);
 
 ## How to run
 
-**Train baseline, then eval OFF vs ON (clean comparison):**
+**Train baseline, then eval OFF vs ON (clean comparison)** — run from the `hpc_run` repo:
 ```bash
-qsub run_baseline_vs_select.pbs
+cd ~/hpc_run/run_job && ./submit.sh run_lstr.pbs
 ```
 
 **FLOPs (no GPU/checkpoint needed):**
