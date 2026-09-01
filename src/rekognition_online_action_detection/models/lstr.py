@@ -45,6 +45,16 @@ class LSTR(nn.Module):
         # whether pruning is actually active (and by how much).
         self._frame_selection_logged = False
 
+        # Pre-embedding frame gate (Upgrade B): prune raw frames before the
+        # feature head so the whole long pipeline processes fewer frames.
+        self.frame_gate_enabled = cfg.MODEL.LSTR.FRAME_GATE.ENABLED
+        self.frame_gate_top_k = cfg.MODEL.LSTR.FRAME_GATE.TOP_K
+        self.frame_gate_score = cfg.MODEL.LSTR.FRAME_GATE.SCORE
+        if self.frame_gate_enabled and self.frame_gate_score not in ('norm', 'uniform'):
+            raise ValueError("FRAME_GATE.SCORE must be 'norm' or 'uniform', got "
+                             '{}'.format(self.frame_gate_score))
+        self._frame_gate_logged = False
+
         # Build position encoding
         self.pos_encoding = tr.PositionalEncoding(self.d_model, self.dropout)
 
@@ -145,13 +155,76 @@ class LSTR(nn.Module):
         return self.enc_modules[0](
             query, selected, memory_key_padding_mask=selected_mask)
 
+    def _apply_frame_gate(self, long_visual, long_motion, memory_key_padding_mask):
+        """Pre-embedding frame gate (Upgrade B).
+
+        Scores the RAW long-memory frames with a cheap signal, keeps the top-k,
+        and runs the feature head + positional encoding on ONLY those k frames.
+        Because fewer frames flow through the whole long pipeline, this reduces
+        FLOPs *and* activation-memory traffic (unlike attention selection, which
+        runs after the feature head).
+
+        Args:
+            long_visual: (B, N, vis) raw visual features.
+            long_motion: (B, N, mot) raw motion features.
+            memory_key_padding_mask: (B, N) additive mask (0 / -inf), or None.
+        Returns:
+            (long_memories, gated_mask): (k, B, d) positional-encoded embeddings
+            and the (B, k) mask for the kept frames (or None).
+        """
+        B, N = long_visual.shape[0], long_visual.shape[1]
+        k = min(int(self.frame_gate_top_k), N)
+
+        if not self._frame_gate_logged:
+            if k >= N:
+                print('[LSTR] frame gate ENABLED but TOP_K ({}) >= N ({}) -> '
+                      'keeping ALL frames (no-op)'.format(self.frame_gate_top_k, N),
+                      flush=True)
+            else:
+                print('[LSTR] pre-embedding frame gate ACTIVE: keeping {} / {} raw '
+                      'frames (score={})'.format(k, N, self.frame_gate_score), flush=True)
+            self._frame_gate_logged = True
+
+        if self.frame_gate_score == 'uniform':
+            idx = torch.linspace(0, N - 1, k, device=long_visual.device).round().long()
+            idx = idx.unsqueeze(0).expand(B, k)
+        else:  # 'norm' -- cheap saliency from raw feature magnitude
+            score = long_visual.norm(dim=-1) + long_motion.norm(dim=-1)   # (B, N)
+            if memory_key_padding_mask is not None:
+                score = score + memory_key_padding_mask                   # sink padded frames
+            idx = score.topk(k, dim=1).indices                            # (B, k)
+        idx, _ = torch.sort(idx, dim=1)                                   # keep temporal order
+
+        # Gather the raw frames for the kept indices.
+        sel_visual = torch.gather(
+            long_visual, 1, idx.unsqueeze(-1).expand(B, k, long_visual.shape[-1]))
+        sel_motion = torch.gather(
+            long_motion, 1, idx.unsqueeze(-1).expand(B, k, long_motion.shape[-1]))
+
+        # Embed only the kept frames.
+        emb = self.feature_head_long(sel_visual, sel_motion).transpose(0, 1)   # (k, B, d)
+
+        # Positional encoding at the ORIGINAL frame positions (not 0..k-1).
+        pe = self.pos_encoding.pe.squeeze(1)[idx].transpose(0, 1)              # (k, B, d)
+        long_memories = self.pos_encoding.dropout(emb + pe)
+
+        gated_mask = (torch.gather(memory_key_padding_mask, 1, idx)
+                      if memory_key_padding_mask is not None else None)
+        return long_memories, gated_mask
+
     def forward(self, visual_inputs, motion_inputs, memory_key_padding_mask=None):
         if self.long_enabled:
-            # Compute long memories
-            long_memories = self.pos_encoding(self.feature_head_long(
-                visual_inputs[:, :self.long_memory_num_samples],
-                motion_inputs[:, :self.long_memory_num_samples],
-            ).transpose(0, 1))
+            long_visual = visual_inputs[:, :self.long_memory_num_samples]
+            long_motion = motion_inputs[:, :self.long_memory_num_samples]
+            if self.frame_gate_enabled:
+                # Upgrade B: prune raw frames BEFORE the feature head, so the
+                # feature head + stage-1 process only the kept frames.
+                long_memories, memory_key_padding_mask = self._apply_frame_gate(
+                    long_visual, long_motion, memory_key_padding_mask)
+            else:
+                # Compute long memories
+                long_memories = self.pos_encoding(self.feature_head_long(
+                    long_visual, long_motion).transpose(0, 1))
 
             if len(self.enc_modules) > 0:
                 enc_queries = [

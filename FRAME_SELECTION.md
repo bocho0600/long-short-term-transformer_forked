@@ -74,6 +74,9 @@ Ground-truth masking of background long-memory frames (`all_actions` /
 - **`tools/benchmark_frame_selection.py`** — MEASURED wall-clock latency + params +
   FLOPs, baseline vs TOP_K. Proves whether the FLOP saving becomes a real speedup
   (and that params are unchanged — selection adds none). Run on the GPU node.
+- **`tools/compare_frame_methods.py`** — 4-way comparison at a matched budget:
+  baseline / gate:uniform / gate:norm / attention:select → params + FLOPs + latency.
+  Shows that only pre-embedding gating cuts latency (memory-bound feature head).
 - **`utils/flops.py` + trainer wiring** — logs params, forward GFLOPs/window, and
   estimated training PFLOPs at the **start of every training run**.
 - **Confirmation log** — on first forward, prints
@@ -125,15 +128,28 @@ Ground-truth masking of background long-memory frames (`all_actions` /
 
 ---
 
+## Upgrade B — pre-embedding frame gate (IMPLEMENTED, inference-time)
+
+`FRAME_GATE` prunes raw frames with a **cheap, parameter-free** score *before* the
+feature head, so the feature head **and** stage-1 process only k frames. This is
+the lever that cuts **memory traffic** (and thus real latency), not just FLOPs.
+- Config: `MODEL.LSTR.FRAME_GATE.{ENABLED, TOP_K, SCORE}`; `SCORE ∈ {norm, uniform}`.
+  - `norm` = keep frames with the largest raw feature L2 norm (cheap saliency).
+  - `uniform` = evenly-spaced subsample (the "dumb" baseline to beat).
+- Preserves each kept frame's **original positional encoding** (gathers `pe` at the
+  original indices), and gathers the padding mask. Config `..._framegate.yaml`.
+- Parameter-free → runs on the baseline checkpoint at inference time.
+- Prints `[LSTR] pre-embedding frame gate ACTIVE: keeping K/N (score=…)` on first forward.
+- Compare all methods with `tools/compare_frame_methods.py` (baseline / gate:uniform /
+  gate:norm / attention:select) → params + FLOPs + measured latency.
+
 ## What's planned
 
-### Upgrade B — prune BEFORE the feature head (the real speedup) 🔴
-Score frames with a **cheap proxy** (feature/motion magnitude, or a tiny learned
-`Linear(→1)` gate) *before* embedding, so the feature head + stage-1 process only k
-frames.
-- Potential saving: **up to ~80%** (cuts the dominant 52% feature head).
-- Trade-off: cheaper score ⇒ worse selection ⇒ accuracy risk to study.
-- This is the intended headline contribution (a lightweight learned frame gate).
+### Learned frame gate 🔴
+Replace the cheap `norm` score with a small learned `Linear(→1)` gate (adds a few
+params, needs training) — potentially a better selector than raw norm while still
+pruning before the feature head. The current `norm`/`uniform` gates are the
+inference-time, no-retrain versions.
 
 ### `fuse` mode (EViT-style)
 Instead of discarding non-selected frames, merge them into one score-weighted

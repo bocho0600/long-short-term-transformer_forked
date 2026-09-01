@@ -59,6 +59,17 @@ _C.MODEL.LSTR.FRAME_SELECTION.TOP_K = 128
 # 'drop': discard non-selected frames. 'fuse': combine them into one
 # score-weighted token (EViT-style). Only 'drop' is implemented for now.
 _C.MODEL.LSTR.FRAME_SELECTION.MODE = 'drop'
+# Pre-embedding frame gate (Upgrade B): prune long-memory frames with a CHEAP
+# score BEFORE the feature head, so the feature head + stage-1 both process only
+# the kept frames. This is the lever that reduces memory traffic (and thus real
+# latency), not just FLOPs. Disabled by default.
+_C.MODEL.LSTR.FRAME_GATE = CN()
+_C.MODEL.LSTR.FRAME_GATE.ENABLED = False
+# Absolute number of raw long-memory frames to keep before embedding.
+_C.MODEL.LSTR.FRAME_GATE.TOP_K = 512
+# 'norm'    : keep frames with the largest raw feature L2 norm (cheap saliency).
+# 'uniform' : evenly-spaced subsample (the "dumb" baseline to beat).
+_C.MODEL.LSTR.FRAME_GATE.SCORE = 'norm'
 # Inference modes
 _C.MODEL.LSTR.INFERENCE_MODE = 'batch'
 
