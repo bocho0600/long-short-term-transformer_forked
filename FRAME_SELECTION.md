@@ -133,23 +133,23 @@ Ground-truth masking of background long-memory frames (`all_actions` /
 `FRAME_GATE` prunes raw frames with a **cheap, parameter-free** score *before* the
 feature head, so the feature head **and** stage-1 process only k frames. This is
 the lever that cuts **memory traffic** (and thus real latency), not just FLOPs.
-- Config: `MODEL.LSTR.FRAME_GATE.{ENABLED, TOP_K, SCORE}`; `SCORE ∈ {norm, uniform}`.
+- Config: `MODEL.LSTR.FRAME_GATE.{ENABLED, TOP_K, SCORE}`; `SCORE ∈ {norm, uniform, learned}`.
   - `norm` = keep frames with the largest raw feature L2 norm (cheap saliency).
   - `uniform` = evenly-spaced subsample (the "dumb" baseline to beat).
+  - `learned` = a tiny `Linear(raw→1)` scorer, **trained end-to-end**. Hard top-k is
+    non-differentiable, so the kept frames are multiplied by a **soft sigmoid gate**
+    → gradients reach the scorer (it learns to score useful frames higher).
+    NOTE: has weights ⇒ **needs its own training run**, not baseline-checkpoint
+    compatible. Config `..._framegate_learned.yaml`. Known limit: dropped frames get
+    no gradient (standard straight-through top-k exploration issue).
+- `norm`/`uniform` are **parameter-free** → run on the baseline checkpoint at inference.
 - Preserves each kept frame's **original positional encoding** (gathers `pe` at the
   original indices), and gathers the padding mask. Config `..._framegate.yaml`.
-- Parameter-free → runs on the baseline checkpoint at inference time.
 - Prints `[LSTR] pre-embedding frame gate ACTIVE: keeping K/N (score=…)` on first forward.
 - Compare all methods with `tools/compare_frame_methods.py` (baseline / gate:uniform /
-  gate:norm / attention:select) → params + FLOPs + measured latency.
+  gate:norm / gate:learned / attention:select) → params + FLOPs + measured latency.
 
 ## What's planned
-
-### Learned frame gate 🔴
-Replace the cheap `norm` score with a small learned `Linear(→1)` gate (adds a few
-params, needs training) — potentially a better selector than raw norm while still
-pruning before the feature head. The current `norm`/`uniform` gates are the
-inference-time, no-retrain versions.
 
 ### `fuse` mode (EViT-style)
 Instead of discarding non-selected frames, merge them into one score-weighted

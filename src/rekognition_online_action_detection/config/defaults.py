@@ -69,6 +69,8 @@ _C.MODEL.LSTR.FRAME_GATE.ENABLED = False
 _C.MODEL.LSTR.FRAME_GATE.TOP_K = 512
 # 'norm'    : keep frames with the largest raw feature L2 norm (cheap saliency).
 # 'uniform' : evenly-spaced subsample (the "dumb" baseline to beat).
+# 'learned' : a tiny Linear(raw->1) scorer, trained end-to-end (needs training;
+#             adds ~few params, so NOT compatible with a baseline checkpoint).
 _C.MODEL.LSTR.FRAME_GATE.SCORE = 'norm'
 # Inference modes
 _C.MODEL.LSTR.INFERENCE_MODE = 'batch'

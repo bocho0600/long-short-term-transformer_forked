@@ -6,7 +6,7 @@ import torch.nn as nn
 from . import transformer as tr
 
 from .models import META_ARCHITECTURES as registry
-from .feature_head import build_feature_head
+from .feature_head import build_feature_head, FEATURE_SIZES
 
 
 class LSTR(nn.Module):
@@ -50,9 +50,19 @@ class LSTR(nn.Module):
         self.frame_gate_enabled = cfg.MODEL.LSTR.FRAME_GATE.ENABLED
         self.frame_gate_top_k = cfg.MODEL.LSTR.FRAME_GATE.TOP_K
         self.frame_gate_score = cfg.MODEL.LSTR.FRAME_GATE.SCORE
-        if self.frame_gate_enabled and self.frame_gate_score not in ('norm', 'uniform'):
-            raise ValueError("FRAME_GATE.SCORE must be 'norm' or 'uniform', got "
-                             '{}'.format(self.frame_gate_score))
+        if self.frame_gate_enabled and self.frame_gate_score not in ('norm', 'uniform', 'learned'):
+            raise ValueError("FRAME_GATE.SCORE must be 'norm', 'uniform' or "
+                             "'learned', got {}".format(self.frame_gate_score))
+        if self.frame_gate_enabled and self.frame_gate_score == 'learned':
+            # Tiny learned scorer over RAW (visual+motion) features -> 1 score/frame.
+            with_visual = 'motion' not in cfg.INPUT.MODALITY
+            with_motion = 'visual' not in cfg.INPUT.MODALITY
+            gate_in = 0
+            if with_visual:
+                gate_in += FEATURE_SIZES[cfg.INPUT.VISUAL_FEATURE]
+            if with_motion:
+                gate_in += FEATURE_SIZES[cfg.INPUT.MOTION_FEATURE]
+            self.frame_gate_scorer = nn.Linear(gate_in, 1)
         self._frame_gate_logged = False
 
         # Build position encoding
@@ -185,9 +195,18 @@ class LSTR(nn.Module):
                       'frames (score={})'.format(k, N, self.frame_gate_score), flush=True)
             self._frame_gate_logged = True
 
+        raw_score = None
         if self.frame_gate_score == 'uniform':
             idx = torch.linspace(0, N - 1, k, device=long_visual.device).round().long()
             idx = idx.unsqueeze(0).expand(B, k)
+        elif self.frame_gate_score == 'learned':
+            # Tiny learned scorer on the RAW features -> one score per frame.
+            raw = torch.cat((long_visual, long_motion), dim=-1)           # (B, N, gate_in)
+            raw_score = self.frame_gate_scorer(raw).squeeze(-1)           # (B, N)
+            score = raw_score
+            if memory_key_padding_mask is not None:
+                score = score + memory_key_padding_mask
+            idx = score.topk(k, dim=1).indices                            # (B, k)
         else:  # 'norm' -- cheap saliency from raw feature magnitude
             score = long_visual.norm(dim=-1) + long_motion.norm(dim=-1)   # (B, N)
             if memory_key_padding_mask is not None:
@@ -203,6 +222,13 @@ class LSTR(nn.Module):
 
         # Embed only the kept frames.
         emb = self.feature_head_long(sel_visual, sel_motion).transpose(0, 1)   # (k, B, d)
+
+        # Learned gate: hard top-k is non-differentiable, so multiply the kept
+        # embeddings by a soft sigmoid weight -> gradients reach the scorer,
+        # teaching it to score useful frames higher.
+        if raw_score is not None:
+            gate_w = torch.sigmoid(torch.gather(raw_score, 1, idx))       # (B, k)
+            emb = emb * gate_w.transpose(0, 1).unsqueeze(-1)              # (k, B, 1)
 
         # Positional encoding at the ORIGINAL frame positions (not 0..k-1).
         pe = self.pos_encoding.pe.squeeze(1)[idx].transpose(0, 1)              # (k, B, d)

@@ -67,6 +67,10 @@ def apply_method(cfg, method, k):
         cfg.MODEL.LSTR.FRAME_GATE.ENABLED = True
         cfg.MODEL.LSTR.FRAME_GATE.SCORE = 'norm'
         cfg.MODEL.LSTR.FRAME_GATE.TOP_K = k
+    elif method == 'gate:learned':
+        cfg.MODEL.LSTR.FRAME_GATE.ENABLED = True
+        cfg.MODEL.LSTR.FRAME_GATE.SCORE = 'learned'
+        cfg.MODEL.LSTR.FRAME_GATE.TOP_K = k
     elif method == 'attention:select':
         cfg.MODEL.LSTR.FRAME_SELECTION.ENABLED = True
         cfg.MODEL.LSTR.FRAME_SELECTION.TOP_K = k
@@ -119,7 +123,7 @@ def main():
     base_cfg = build_cfg(args)
     k = args.top_k
 
-    methods = ['baseline', 'gate:uniform', 'gate:norm', 'attention:select']
+    methods = ['baseline', 'gate:uniform', 'gate:norm', 'gate:learned', 'attention:select']
     rows = []
     for m in methods:
         params, flops, lat, L = measure(base_cfg, m, k, args, device)
